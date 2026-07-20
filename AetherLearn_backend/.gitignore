@@ -1,0 +1,8 @@
+target/
+uploads/
+*.iml
+.idea/
+# 本地敏感配置：含 AI 密钥，禁止提交 GitHub
+application-local.yml
+# 旧的明文密钥文件（已弃用，勿提交）
+api-key.txt

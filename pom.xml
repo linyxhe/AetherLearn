@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      AetherLearn 聚合 POM（仅用于让 IDEA 正确识别为 Maven 项目）
+      - 后端 Maven 工程在子模块 AetherLearn_backend（其父 POM 为 spring-boot-starter-parent）。
+      - 前端 AetherLearn_front 为 Vite 工程，不归 Maven 管理，IDEA 中作为普通目录即可，
+        运行用终端 `npm install && npm run dev`。
+    -->
+    <groupId>com.aetherlearn</groupId>
+    <artifactId>AetherLearn</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>AetherLearn</name>
+    <description>AetherLearn 智能教学辅助与学习分析平台（聚合工程）</description>
+
+    <modules>
+        <module>AetherLearn_backend</module>
+    </modules>
+</project>
