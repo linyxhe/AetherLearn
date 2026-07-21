@@ -20,6 +20,6 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
      */
     @Select("SELECT c.* FROM knowledge_chunk c " +
             "JOIN knowledge_doc d ON c.doc_id = d.id " +
-            "WHERE c.course_id = #{courseId} AND c.is_deleted = 0 AND d.is_deleted = 0")
+            "WHERE c.course_id = #{courseId} AND d.is_deleted = 0")
     List<KnowledgeChunk> selectByCourseId(Long courseId);
 }

@@ -7,12 +7,14 @@ import com.aetherlearn.dto.QaAskRequest;
 import com.aetherlearn.entity.QaRecord;
 import com.aetherlearn.service.QaService;
 import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
@@ -31,12 +33,22 @@ public class QaController {
     }
 
     /**
-     * 提问并获取回答（检索 + 大模型 / 降级）
+     * 同步提问（检索 + 大模型 / 降级）
      */
     @PostMapping("/ask")
     public Result<QaAnswer> ask(@Valid @RequestBody QaAskRequest request) {
         Long userId = SecurityUtils.getCurrentUserId();
         return Result.success(qaService.ask(userId, request));
+    }
+
+    /**
+     * 流式提问（SSE），前端通过 EventSource 消费
+     * <p>事件类型：sources（来源列表）、chunk（逐字回答）、done（完成元数据）、error（异常）。</p>
+     */
+    @PostMapping(value = "/ask-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter askStream(@Valid @RequestBody QaAskRequest request) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        return qaService.askStream(userId, request);
     }
 
     /**

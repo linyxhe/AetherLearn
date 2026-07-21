@@ -42,14 +42,29 @@ jwt:
 file:
   upload-dir: ./uploads         # 相对后端项目根目录；也可改为绝对路径
 
-# ---------- AI 大模型配置（可降级，配置分文件管理） ----------
-# 公开项（base-url / model / 检索参数）可直接提交 GitHub；
-# 密钥 ai.api-key 仅放在 gitignored 的 application-local.yml，切勿提交。
+# ---------- LangChain4j 大模型配置（OpenAI 兼容接口） ----------
+# LangChain4j 统一处理流式/同步、重试、超时；切换供应商只需改 base-url + model-name。
+# 密钥放在 gitignored 的 application-local.yml，切勿提交。
+#
+# 供应商切换指南：
+# ┌──────────────┬──────────────────────────────────────┬─────────────────────────────────┐
+# │ 供应商        │ base-url                             │ model-name                      │
+# ├──────────────┼──────────────────────────────────────┼─────────────────────────────────┤
+# │ 小米 MiMo    │ https://api.xiaomimimo.com/v1        │ mimo-v2.5-pro-ultraspeed        │
+# │ DeepSeek     │ https://api.deepseek.com/v1          │ deepseek-chat                   │
+# │ OpenRouter   │ https://openrouter.ai/api/v1         │ nvidia/nemotron-3-super-120b... │
+# └──────────────┴──────────────────────────────────────┴─────────────────────────────────┘
+langchain4j:
+  open-ai:
+    chat-model:
+      base-url: https://token-plan-cn.xiaomimimo.com/v1
+      model-name: mimo-v2.5-pro
+      temperature: 0.3
+      timeout: PT120S
+
+# 业务层 AI 参数（RAG 检索配置，保留）
 ai:
-  enabled: true                                        # 是否启用大模型生成答案；false 时仅返回检索到的知识切片（降级）
-  base-url: https://openrouter.ai                     # 供应商基址（OpenAI 兼容）
-  model: nvidia/nemotron-3-ultra-550b-a55b:free       # 模型名称
-  # 检索与上下文参数
+  enabled: true
   top-k: 5                      # 每问最多取 Top-K 个相关切片
   token-threshold: 2500        # 模型上下文token阈值
   token-ratio: 0.8             # 滑动窗口截断比例（取 Top-K 拼接至阈值的 80% ≈ 2000 token 即停）

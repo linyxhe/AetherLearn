@@ -82,7 +82,7 @@ const allMenus = [
   { path: '/knowledge', title: '课程知识库', icon: Files, roles: [ROLE.TEACHER] },
   { path: '/homework', title: '作业管理', icon: EditPen, roles: [ROLE.TEACHER] },
   { path: '/student-dashboard', title: '学习中心', icon: School, roles: [ROLE.STUDENT] },
-  { path: '/my-course', title: '我的课程', icon: Reading, roles: [ROLE.STUDENT] },
+  { path: '/my-course', title: '我的作业', icon: Reading, roles: [ROLE.STUDENT] },
   { path: '/qa', title: '智能问答', icon: ChatDotRound, roles: [ROLE.STUDENT] }
 ]
 const menus = computed(() => allMenus.filter((m) => m.roles.includes(userStore.role)))

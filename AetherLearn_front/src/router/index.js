@@ -18,8 +18,8 @@ const routes = [
       // 以下为后续波次占位（第一波未实现，统一引导至规划页）
       { path: 'user', name: 'User', component: () => import('../views/ComingSoon.vue'), meta: { title: '用户管理', roles: [ROLE.ADMIN] } },
       { path: 'knowledge', name: 'Knowledge', component: () => import('../views/Knowledge.vue'), meta: { title: '课程知识库', roles: [ROLE.TEACHER] } },
-      { path: 'homework', name: 'Homework', component: () => import('../views/ComingSoon.vue'), meta: { title: '作业管理', roles: [ROLE.TEACHER] } },
-      { path: 'my-course', name: 'MyCourse', component: () => import('../views/ComingSoon.vue'), meta: { title: '我的课程', roles: [ROLE.STUDENT] } },
+      { path: 'homework', name: 'Homework', component: () => import('../views/Homework.vue'), meta: { title: '作业管理', roles: [ROLE.TEACHER] } },
+      { path: 'my-course', name: 'MyCourse', component: () => import('../views/MyHomework.vue'), meta: { title: '我的作业', roles: [ROLE.STUDENT] } },
       { path: 'qa', name: 'Qa', component: () => import('../views/Qa.vue'), meta: { title: '智能问答', roles: [ROLE.STUDENT] } }
     ]
   },

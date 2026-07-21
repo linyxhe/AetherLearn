@@ -49,6 +49,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         String path = request.getRequestURI();
 
+        // 0. OPTIONS 预检请求直接放行（CORS 预检不需要鉴权）
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         // 1. 白名单直接放行
         for (String w : WHITE_LIST) {
             if (pathMatcher.match(w, path)) {
