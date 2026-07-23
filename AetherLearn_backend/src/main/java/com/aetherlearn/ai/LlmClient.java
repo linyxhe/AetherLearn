@@ -12,7 +12,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -62,7 +64,28 @@ public class LlmClient {
             return (ai != null && ai.text() != null && !ai.text().isBlank())
                     ? ai.text().trim() : null;
         } catch (Exception e) {
-            log.warn("[LLM] 同步调用失败：{}", e.getMessage());
+            log.error("[LLM] 同步调用失败", e);  // ← 改为 error + 完整堆栈
+            return null;
+        }
+    }
+
+    /**
+     * 同步调用（带业务级短超时）
+     * <p>用于页面型功能，避免用户打开页面时被大模型网络耗时卡住。</p>
+     */
+    public String chatWithin(String systemPrompt, String userPrompt, long timeoutSeconds) {
+        if (!aiConfig.isAvailable()) {
+            return null;
+        }
+        try {
+            return CompletableFuture
+                    .supplyAsync(() -> chat(systemPrompt, userPrompt))
+                    .get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            log.warn("[LLM] 短超时调用超过 {} 秒，返回本地规则结果", timeoutSeconds);
+            return null;
+        } catch (Exception e) {
+            log.warn("[LLM] 短超时调用失败：{}", e.getMessage());
             return null;
         }
     }
@@ -125,7 +148,7 @@ public class LlmClient {
 
             return result.get().length() > 0;
         } catch (Exception e) {
-            log.warn("[LLM] 流式调用异常，降级为同步：{}", e.getMessage());
+            log.error("[LLM] 流式调用异常，降级为同步：", e);  // ← 完整堆栈
             return chatFallback(systemPrompt, userPrompt, onChunk);
         }
     }

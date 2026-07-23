@@ -43,6 +43,9 @@ public class StudentAnswer implements Serializable {
     /** 批改反馈 */
     private String feedback;
 
+    /** 作答图片路径（uploads/answer/，F-HW-04 学生作答图片上传） */
+    private String imageUrl;
+
     /** 批改方式：1-自动 2-人工复核 */
     private Integer gradeType;
 

@@ -1,8 +1,10 @@
 package com.aetherlearn.service.impl;
 
 import com.aetherlearn.common.BusinessException;
+import com.aetherlearn.dto.QaSource;
 import com.aetherlearn.entity.KnowledgeChunk;
 import com.aetherlearn.entity.KnowledgeDoc;
+import com.aetherlearn.kb.Bm25Retriever;
 import com.aetherlearn.kb.DocumentParser;
 import com.aetherlearn.kb.TextChunker;
 import com.aetherlearn.mapper.KnowledgeChunkMapper;
@@ -20,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -35,6 +38,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     private final KnowledgeChunkMapper chunkMapper;
     private final DocumentParser documentParser;
     private final TextChunker textChunker;
+    private final Bm25Retriever retriever;
 
     /** 上传根目录（来自 application.yml 的 file.upload-dir） */
     @Value("${file.upload-dir}")
@@ -44,11 +48,13 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     private int chunkSize;
 
     public KnowledgeServiceImpl(KnowledgeDocMapper docMapper, KnowledgeChunkMapper chunkMapper,
-                                DocumentParser documentParser, TextChunker textChunker) {
+                                DocumentParser documentParser, TextChunker textChunker,
+                                Bm25Retriever retriever) {
         this.docMapper = docMapper;
         this.chunkMapper = chunkMapper;
         this.documentParser = documentParser;
         this.textChunker = textChunker;
+        this.retriever = retriever;
     }
 
     @Override
@@ -139,6 +145,33 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
         // removeById 配合 @TableLogic 软删除；检索时 knowledge_chunk 已 JOIN doc.is_deleted 隔离
         docMapper.deleteById(docId);
+    }
+
+    /**
+     * 检索课程知识库切片（M2 知识库检索预览）
+     * <p>调用 Bm25Retriever 获取相关切片，再关联文档标题组装 QaSource。</p>
+     */
+    @Override
+    public List<QaSource> searchChunks(Long courseId, String query, int topK) {
+        if (courseId == null) {
+            throw new BusinessException(400, "课程ID不能为空");
+        }
+        if (query == null || query.isBlank()) {
+            throw new BusinessException(400, "搜索关键词不能为空");
+        }
+        // 调用已有 BM25 检索器
+        List<KnowledgeChunk> chunks = retriever.retrieve(courseId, query.trim(), topK);
+        // 组装来源信息
+        List<QaSource> sources = new ArrayList<>();
+        for (KnowledgeChunk c : chunks) {
+            KnowledgeDoc doc = docMapper.selectById(c.getDocId());
+            QaSource s = new QaSource();
+            s.setDocId(c.getDocId());
+            s.setDocTitle(doc != null ? doc.getTitle() : "未知文档");
+            s.setContent(c.getContent());
+            sources.add(s);
+        }
+        return sources;
     }
 
     /** 从文件名解析并校验文件类型 */

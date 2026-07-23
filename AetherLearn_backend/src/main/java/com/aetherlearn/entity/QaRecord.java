@@ -35,6 +35,9 @@ public class QaRecord implements Serializable {
     /** 引用的切片ID列表（如 "1,2,3"） */
     private String sourceChunks;
 
+    /** 来源切片详情 JSON（M4 问答历史来源显示） */
+    private String sourcesJson;
+
     /** 是否使用大模型：1-是 0-否 */
     private Integer useLlm;
 

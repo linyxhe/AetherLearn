@@ -32,20 +32,31 @@ public class DocumentParser {
      * @return 抽取出的纯文本
      */
     public String parse(MultipartFile file, String fileType) throws IOException {
-        String type = (fileType == null ? "" : fileType).toLowerCase();
         try (InputStream in = file.getInputStream()) {
-            switch (type) {
-                case "pdf":
-                    return parsePdf(in);
-                case "docx":
-                    return parseDocx(in);
-                case "md":
-                case "txt":
-                case "":
-                    return parseText(in);
-                default:
-                    throw new IllegalArgumentException("不支持的文件类型：" + fileType);
-            }
+            return parse(in, fileType);
+        }
+    }
+
+    /**
+     * 解析输入流为纯文本，供已上传文件二次解析复用。
+     *
+     * @param in       文件输入流
+     * @param fileType 文件类型：pdf / docx / md / txt
+     * @return 抽取出的纯文本
+     */
+    public String parse(InputStream in, String fileType) throws IOException {
+        String type = (fileType == null ? "" : fileType).toLowerCase();
+        switch (type) {
+            case "pdf":
+                return parsePdf(in);
+            case "docx":
+                return parseDocx(in);
+            case "md":
+            case "txt":
+            case "":
+                return parseText(in);
+            default:
+                throw new IllegalArgumentException("不支持的文件类型：" + fileType);
         }
     }
 

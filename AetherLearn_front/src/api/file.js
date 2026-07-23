@@ -10,3 +10,8 @@ export function uploadFile(file, bizType) {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
 }
+
+// 解析已上传文件为文本（用于课程章节资料解析）
+export function parseUploadedFile(url) {
+  return request.get('/file/parse', { params: { url } })
+}

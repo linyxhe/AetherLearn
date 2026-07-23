@@ -2,8 +2,11 @@ package com.aetherlearn.controller;
 
 import com.aetherlearn.common.Result;
 import com.aetherlearn.common.SecurityUtils;
+import com.aetherlearn.dto.CourseChapterSaveRequest;
 import com.aetherlearn.dto.CourseSaveRequest;
 import com.aetherlearn.entity.Course;
+import com.aetherlearn.entity.CourseChapter;
+import com.aetherlearn.entity.SysUser;
 import com.aetherlearn.service.CourseService;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -45,7 +48,7 @@ public class CourseController {
     /**
      * 新建/编辑课程（仅 教师/管理员）
      */
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('TEACHER')")
     @PostMapping
     public Result<Course> save(@Valid @RequestBody CourseSaveRequest request) {
         Long operatorId = SecurityUtils.getCurrentUserId();
@@ -56,7 +59,7 @@ public class CourseController {
     /**
      * 删除课程（软删除，仅 教师/管理员）
      */
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('TEACHER')")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         courseService.delete(id);
@@ -66,7 +69,7 @@ public class CourseController {
     /**
      * 生成课程邀请码（仅 教师/管理员）
      */
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('TEACHER')")
     @PostMapping("/{id}/invite")
     public Result<String> invite(@PathVariable Long id) {
         return Result.success("邀请码已生成", courseService.generateInviteCode(id));
@@ -82,4 +85,63 @@ public class CourseController {
         courseService.joinByInviteCode(studentId, code);
         return Result.success();
     }
+
+    /**
+     * 查询课程学生名单（F-COURSE-03，仅 教师/管理员）
+     */
+    @PreAuthorize("hasRole('TEACHER')")
+    @GetMapping("/{id}/students")
+    public Result<List<SysUser>> listStudents(@PathVariable Long id) {
+        return Result.success(courseService.listStudents(id));
+    }
+
+    /**
+     * 移除课程学生（F-COURSE-03，仅 教师/管理员）
+     */
+    @PreAuthorize("hasRole('TEACHER')")
+    @DeleteMapping("/{id}/students/{studentId}")
+    public Result<Void> removeStudent(@PathVariable Long id, @PathVariable Long studentId) {
+        courseService.removeStudent(id, studentId);
+        return Result.success();
+    }
+
+    /**
+     * 查询课程在线学习章节（教师维护、学生学习）
+     */
+    @GetMapping("/{id}/chapters")
+    public Result<List<CourseChapter>> listChapters(@PathVariable Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        Integer role = SecurityUtils.getCurrentRole();
+        return Result.success(courseService.listChapters(id, userId, role));
+    }
+
+    /**
+     * 新增/编辑在线学习章节（仅教师/管理员）
+     */
+    @PreAuthorize("hasRole('TEACHER')")
+    @PostMapping("/chapters")
+    public Result<CourseChapter> saveChapter(@Valid @RequestBody CourseChapterSaveRequest request) {
+        return Result.success("章节保存成功", courseService.saveChapter(request));
+    }
+
+    /**
+     * 删除在线学习章节（仅教师/管理员）
+     */
+    @PreAuthorize("hasRole('TEACHER')")
+    @DeleteMapping("/chapters/{chapterId}")
+    public Result<Void> deleteChapter(@PathVariable Long chapterId) {
+        courseService.deleteChapter(chapterId);
+        return Result.success();
+    }
+
+    /**
+     * 学生完成章节学习，写入学习进度。
+     */
+    @PreAuthorize("hasRole('STUDENT')")
+    @PostMapping("/chapters/{chapterId}/complete")
+    public Result<Void> completeChapter(@PathVariable Long chapterId) {
+        courseService.completeChapter(chapterId, SecurityUtils.getCurrentUserId());
+        return Result.success();
+    }
 }
+

@@ -55,5 +55,10 @@ async function customUpload({ file }) {
 
 <style scoped>
 .upload-drag { width: 100%; }
-.preview { margin-top: 10px; }
+.preview {
+  margin-top: 12px;
+  padding: 8px;
+  background: var(--surface, #f2fbfa);
+  border-radius: var(--radius-sm, 8px);
+}
 </style>

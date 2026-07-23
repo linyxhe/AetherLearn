@@ -47,18 +47,18 @@ file:
 # 密钥放在 gitignored 的 application-local.yml，切勿提交。
 #
 # 供应商切换指南：
-# ┌──────────────┬──────────────────────────────────────┬─────────────────────────────────┐
-# │ 供应商        │ base-url                             │ model-name                      │
-# ├──────────────┼──────────────────────────────────────┼─────────────────────────────────┤
-# │ 小米 MiMo    │ https://api.xiaomimimo.com/v1        │ mimo-v2.5-pro-ultraspeed        │
-# │ DeepSeek     │ https://api.deepseek.com/v1          │ deepseek-chat                   │
-# │ OpenRouter   │ https://openrouter.ai/api/v1         │ nvidia/nemotron-3-super-120b... │
-# └──────────────┴──────────────────────────────────────┴─────────────────────────────────┘
+# ┌──────────────┬──────────────────────────────────────┬────────────────────────────────────────┐
+# │ 供应商        │ base-url                             │ model-name                             │
+# ├──────────────┼──────────────────────────────────────┼────────────────────────────────────────┤
+# │ 小米 MiMo    │ https://api.xiaomimimo.com/v1        │ mimo-v2.5-pro               │
+# │ DeepSeek     │ https://api.deepseek.com/v1          │ deepseek-v4-flash                          │
+# │ OpenRouter   │ https://openrouter.ai/api/v1         │ nvidia/nemotron-3-ultra-550b-a55b:free │
+# └──────────────┴──────────────────────────────────────┴────────────────────────────────────────┘
 langchain4j:
   open-ai:
     chat-model:
-      base-url: https://token-plan-cn.xiaomimimo.com/v1
-      model-name: mimo-v2.5-pro
+      base-url: https://api.deepseek.com/v1
+      model-name: deepseek-v4-flash
       temperature: 0.3
       timeout: PT120S
 
@@ -69,6 +69,12 @@ ai:
   token-threshold: 2500        # 模型上下文token阈值
   token-ratio: 0.8             # 滑动窗口截断比例（取 Top-K 拼接至阈值的 80% ≈ 2000 token 即停）
   chunk-size: 600              # 文本切片字符上限
+
+# ---------- AetherLearn 业务配置（L4/L5/L6 可配置项） ----------
+aetherlearn:
+  suggestion-limit: 10         # L4 学习建议数量上限
+  score-ranges: 0-59,60-69,70-79,80-89,90-100  # L5 成绩分布分段
+  weak-threshold: 40.0         # L6 知识薄弱判定阈值（错误率 %）
 
 # ---------- MyBatis-Plus 配置 ----------
 mybatis-plus:

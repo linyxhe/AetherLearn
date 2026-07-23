@@ -1,332 +1,268 @@
 <template>
-  <div class="hw-wrap">
-    <!-- 顶部：标题 + 课程筛选 + 新建 -->
-    <div class="head">
-      <h2 class="page-title">作业管理</h2>
-      <div class="head-right">
-        <el-select v-model="selectedCourse" placeholder="全部课程" clearable style="width: 200px" @change="loadAssignments">
-          <el-option v-for="c in courses" :key="c.id" :label="c.courseName" :value="c.id" />
-        </el-select>
-        <el-button type="primary" @click="openAssignmentCreate">+ 新建作业</el-button>
+  <div class="teacher-workbench">
+    <div class="hero">
+      <div>
+        <div class="eyebrow">作业管理</div>
+        <h2>发布、批改、复核都在一个教师工作台完成</h2>
+        <p>教师先选课程创建作业，再进入题目管理、AI 出题和学生复核。页面保留清晰的任务流，不把复杂操作压成一堆表格按钮。</p>
       </div>
+      <n-card class="hero-card" :bordered="false">
+        <div class="hero-card-title">当前工作量</div>
+        <div class="hero-card-value">{{ assignments.length }} 份作业</div>
+        <div class="hero-card-sub">作业数、进行中状态、待复核内容一目了然。</div>
+      </n-card>
     </div>
 
-    <!-- 教师总览卡（轻量数据概览，呼应教师看板基调） -->
-    <div class="stat-row">
-      <div class="stat-card">
-        <div class="stat-num">{{ assignments.length }}</div>
-        <div class="stat-label">作业总数</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num grad">{{ activeCount }}</div>
-        <div class="stat-label">进行中</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num">{{ endedCount }}</div>
-        <div class="stat-label">已结束</div>
-      </div>
-    </div>
+    <n-card :bordered="false" class="control-card">
+      <n-space align="center" justify="space-between" wrap>
+        <n-space>
+          <n-select v-model:value="selectedCourse" :options="courseOptions" placeholder="全部课程" clearable style="min-width: 240px" @update:value="loadAssignments" />
+          <n-button type="primary" @click="openAssignmentCreate">新建作业</n-button>
+        </n-space>
+        <n-tag type="info" round>教学工作流</n-tag>
+      </n-space>
+    </n-card>
 
-    <!-- 作业列表 -->
-    <div class="aeth-card">
-      <el-table :data="assignments" v-loading="loading" stripe>
-        <el-table-column prop="title" label="作业标题" min-width="160" />
-        <el-table-column label="类型" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.type === 2 ? 'warning' : 'primary'" effect="plain">
-              {{ row.type === 2 ? '测验' : '作业' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="totalScore" label="总分" width="80" />
-        <el-table-column label="截止时间" min-width="150">
-          <template #default="{ row }">{{ row.endTime || '—' }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 1 ? 'success' : 'info'">
-              {{ row.status === 1 ? '进行中' : '已结束' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" @click="openQuestionManage(row)">题目管理</el-button>
-            <el-button size="small" type="success" @click="openReview(row)">批改</el-button>
-            <el-button size="small" @click="openAssignmentEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="onDeleteAssignment(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-if="!loading && assignments.length === 0" description="还没有作业，点击右上角新建第一份">
-        <el-button type="primary" @click="openAssignmentCreate">+ 新建作业</el-button>
-      </el-empty>
-    </div>
+    <n-grid :cols="3" :x-gap="16" :y-gap="16" responsive="screen">
+      <n-grid-item v-for="item in statCards" :key="item.label">
+        <n-card :bordered="false" class="stat-card">
+          <div class="stat-value">{{ item.value }}</div>
+          <div class="stat-label">{{ item.label }}</div>
+        </n-card>
+      </n-grid-item>
+    </n-grid>
 
-    <!-- 新建/编辑作业对话框 -->
-    <el-dialog v-model="asmVisible" :title="asmIsEdit ? '编辑作业' : '新建作业'" width="560px">
-      <el-form :model="asmForm" label-width="84px">
-        <el-form-item label="所属课程" required>
-          <el-select v-model="asmForm.courseId" placeholder="选择课程" style="width: 100%">
-            <el-option v-for="c in courses" :key="c.id" :label="c.courseName" :value="c.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="标题" required>
-          <el-input v-model="asmForm.title" placeholder="如：Java 第一次作业" />
-        </el-form-item>
-        <el-form-item label="类型">
-          <el-radio-group v-model="asmForm.type">
-            <el-radio :value="1">作业</el-radio>
-            <el-radio :value="2">测验</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="起止时间">
-          <el-date-picker v-model="timeRange" type="datetimerange" range-separator="至"
-            start-placeholder="开始" end-placeholder="截止" value-format="YYYY-MM-DD HH:mm:ss"
-            style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="总分">
-          <el-input-number v-model="asmForm.totalScore" :min="1" :max="1000" />
-        </el-form-item>
-        <el-form-item label="说明">
-          <el-input v-model="asmForm.description" type="textarea" :rows="2" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="asmVisible = false">取消</el-button>
-        <el-button type="primary" :loading="asmSaving" @click="onSaveAssignment">保存</el-button>
+    <n-card :bordered="false" class="panel">
+      <n-table :single-line="false" :bordered="false">
+        <thead>
+          <tr>
+            <th>作业标题</th>
+            <th>类型</th>
+            <th>总分</th>
+            <th>截止时间</th>
+            <th>状态</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in pagedAssignments" :key="row.id">
+            <td>{{ row.title }}</td>
+            <td><n-tag :type="row.type === 2 ? 'warning' : 'info'" round>{{ row.type === 2 ? '测验' : '作业' }}</n-tag></td>
+            <td>{{ row.totalScore }}</td>
+            <td>{{ row.endTime || '—' }}</td>
+            <td><n-tag :type="row.status === 1 ? 'success' : 'default'" round>{{ row.status === 1 ? '进行中' : '已结束' }}</n-tag></td>
+            <td>
+              <n-space>
+                <n-button size="small" secondary @click="openQuestionManage(row)">题目管理</n-button>
+                <n-button size="small" type="success" secondary @click="openReview(row)">批改</n-button>
+                <n-button size="small" secondary @click="openAssignmentEdit(row)">编辑</n-button>
+                <n-button size="small" secondary type="error" @click="onDeleteAssignment(row)">删除</n-button>
+              </n-space>
+            </td>
+          </tr>
+        </tbody>
+      </n-table>
+      <n-empty v-if="!loading && assignments.length === 0" description="还没有作业，点击右上角新建第一份" />
+      <div v-if="assignments.length > pageSize" class="pagination-wrap">
+        <n-pagination v-model:page="currentPage" :page-size="pageSize" :item-count="assignments.length" />
+      </div>
+    </n-card>
+
+    <n-modal v-model:show="asmVisible" preset="card" :title="asmIsEdit ? '编辑作业' : '新建作业'" class="work-modal">
+      <n-form label-placement="left" label-width="84" :model="asmForm">
+        <n-form-item label="所属课程" required>
+          <n-select v-model:value="asmForm.courseId" :options="courseOptions" placeholder="选择课程" />
+        </n-form-item>
+        <n-form-item label="标题" required><n-input v-model:value="asmForm.title" placeholder="如：Java 第一次作业" /></n-form-item>
+        <n-form-item label="类型">
+          <n-radio-group v-model:value="asmForm.type">
+            <n-space>
+              <n-radio :value="1">作业</n-radio>
+              <n-radio :value="2">测验</n-radio>
+            </n-space>
+          </n-radio-group>
+        </n-form-item>
+        <n-form-item label="起止时间">
+          <n-date-picker v-model:value="timeRange" type="datetimerange" clearable />
+        </n-form-item>
+        <n-form-item label="总分">
+          <n-input-number v-model:value="asmForm.totalScore" :min="1" :max="1000" />
+        </n-form-item>
+        <n-form-item label="说明">
+          <n-input v-model:value="asmForm.description" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" />
+        </n-form-item>
+      </n-form>
+      <template #action>
+        <n-space justify="end">
+          <n-button @click="asmVisible = false">取消</n-button>
+          <n-button type="primary" :loading="asmSaving" @click="onSaveAssignment">保存</n-button>
+        </n-space>
       </template>
-    </el-dialog>
+    </n-modal>
 
-    <!-- 题目管理对话框 -->
-    <el-dialog v-model="qmVisible" :title="`题目管理 · ${currentAssignment?.title || ''}`" width="820px" top="5vh">
+    <n-modal v-model:show="qmVisible" preset="card" :title="`题目管理 · ${currentAssignment?.title || ''}`" class="work-modal">
       <div class="qm-head">
         <span class="muted">共 {{ questions.length }} 题 · 总分 {{ totalQuestionScore }}</span>
-        <el-button type="primary" size="small" @click="openQuestionCreate">+ 添加题目</el-button>
+        <n-space>
+          <n-button size="small" type="warning" secondary @click="openAiGenerate">AI 出题</n-button>
+          <n-button size="small" type="primary" @click="openQuestionCreate">添加题目</n-button>
+        </n-space>
       </div>
-      <el-table :data="questions" stripe>
-        <el-table-column label="题型" width="80">
-          <template #default="{ row }">
-            <span v-if="row.type === 5" class="tag-ai">{{ typeLabel(row.type) }}</span>
-            <el-tag v-else effect="plain">{{ typeLabel(row.type) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="题干" min-width="240" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.content }}</template>
-        </el-table-column>
-        <el-table-column prop="score" label="分值" width="70" />
-        <el-table-column label="操作" width="150">
-          <template #default="{ row }">
-            <el-button size="small" @click="openQuestionEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="onDeleteQuestion(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-if="questions.length === 0" description="暂无题目" />
-    </el-dialog>
+      <n-table :single-line="false" :bordered="false">
+        <thead><tr><th>题型</th><th>题干</th><th>分值</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr v-for="row in questions" :key="row.id">
+            <td><n-tag :type="row.type === 5 ? 'warning' : 'info'" round>{{ typeLabel(row.type) }}</n-tag></td>
+            <td>{{ row.content }}</td>
+            <td>{{ row.score }}</td>
+            <td><n-space><n-button size="small" secondary @click="openQuestionEdit(row)">编辑</n-button><n-button size="small" secondary type="error" @click="onDeleteQuestion(row)">删除</n-button></n-space></td>
+          </tr>
+        </tbody>
+      </n-table>
+      <n-empty v-if="questions.length === 0" description="暂无题目" />
+      <template #action>
+        <n-space justify="end">
+          <n-button @click="qmVisible = false">关闭</n-button>
+        </n-space>
+      </template>
+    </n-modal>
 
-    <!-- 添加/编辑题目对话框 -->
-    <el-dialog v-model="qVisible" :title="qIsEdit ? '编辑题目' : '添加题目'" width="600px" append-to-body>
-      <el-form :model="qForm" label-width="84px">
-        <el-form-item label="题型">
-          <el-select v-model="qForm.type" style="width: 100%" @change="onQuestionTypeChange">
-            <el-option v-for="t in questionTypes" :key="t.value" :label="t.label" :value="t.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="题干" required>
-          <el-input v-model="qForm.content" type="textarea" :rows="2" />
-        </el-form-item>
+    <n-modal v-model:show="aiGenVisible" preset="card" title="AI 自动出题" class="mini-modal">
+      <n-form label-placement="left" label-width="64" :model="aiGenForm">
+        <n-form-item label="题型"><n-select v-model:value="aiGenForm.type" :options="questionTypeOptions" /></n-form-item>
+        <n-form-item label="数量"><n-input-number v-model:value="aiGenForm.count" :min="1" :max="20" /></n-form-item>
+      </n-form>
+      <template #action>
+        <n-space justify="end">
+          <n-button @click="aiGenVisible = false">取消</n-button>
+          <n-button type="warning" :loading="aiGenLoading" @click="onAiGenerate">开始生成</n-button>
+        </n-space>
+      </template>
+    </n-modal>
 
-        <!-- 单选/多选：选项编辑 -->
-        <el-form-item v-if="qForm.type === 1 || qForm.type === 2" label="选项">
+    <n-modal v-model:show="qVisible" preset="card" :title="qIsEdit ? '编辑题目' : '添加题目'" class="work-modal">
+      <n-form label-placement="left" label-width="84" :model="qForm">
+        <n-form-item label="题型"><n-select v-model:value="qForm.type" :options="questionTypeOptions" @update:value="onQuestionTypeChange" /></n-form-item>
+        <n-form-item label="题干" required><n-input v-model:value="qForm.content" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" /></n-form-item>
+        <n-form-item v-if="qForm.type === 1 || qForm.type === 2" label="选项">
           <div class="opt-list">
             <div v-for="(opt, i) in qForm.options" :key="i" class="opt-row">
               <span class="opt-key">{{ letter(i) }}</span>
-              <el-input v-model="qForm.options[i]" placeholder="选项内容" />
-              <el-button text type="danger" @click="removeOption(i)">×</el-button>
+              <n-input v-model:value="qForm.options[i]" placeholder="选项内容" />
+              <n-button text type="error" @click="removeOption(i)">×</n-button>
             </div>
-            <el-button text type="primary" @click="addOption">+ 添加选项</el-button>
+            <n-button text type="primary" @click="addOption">+ 添加选项</n-button>
           </div>
-        </el-form-item>
-
-        <!-- 标准答案：随题型变化 -->
-        <el-form-item label="标准答案" required>
-          <el-select v-if="qForm.type === 1" v-model="qForm.answer" placeholder="选择正确选项" style="width: 100%">
-            <el-option v-for="(opt, i) in qForm.options" :key="i" :label="letter(i) + ' ' + opt" :value="letter(i)" />
-          </el-select>
-          <el-checkbox-group v-else-if="qForm.type === 2" v-model="multiAnswer">
-            <el-checkbox v-for="(opt, i) in qForm.options" :key="i" :value="letter(i)">{{ letter(i) }} {{ opt }}</el-checkbox>
-          </el-checkbox-group>
-          <el-select v-else-if="qForm.type === 3" v-model="qForm.answer" placeholder="选择" style="width: 100%">
-            <el-option label="正确" value="正确" />
-            <el-option label="错误" value="错误" />
-          </el-select>
-          <el-input v-else-if="qForm.type === 4" v-model="qForm.answer" placeholder="填空答案（关键词）" />
-          <el-input v-else v-model="qForm.answer" type="textarea" :rows="2" placeholder="标准答案/要点" />
-        </el-form-item>
-
-        <el-form-item label="分值">
-          <el-input-number v-model="qForm.score" :min="0" :max="100" />
-        </el-form-item>
-        <el-form-item label="知识点">
-          <el-input v-model="qForm.knowledgePoint" placeholder="如：面向对象" />
-        </el-form-item>
-        <el-form-item label="解析">
-          <el-input v-model="qForm.analysis" type="textarea" :rows="2" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="qVisible = false">取消</el-button>
-        <el-button type="primary" :loading="qSaving" @click="onSaveQuestion">保存</el-button>
+        </n-form-item>
+        <n-form-item label="标准答案" required>
+          <n-input v-if="qForm.type === 4 || qForm.type === 5" v-model:value="qForm.answer" placeholder="标准答案/要点" />
+          <n-select v-else-if="qForm.type === 3" v-model:value="qForm.answer" :options="[{label:'正确',value:'正确'},{label:'错误',value:'错误'}]" />
+          <n-select v-else-if="qForm.type === 1" v-model:value="qForm.answer" :options="qForm.options.map((o, i) => ({ label: `${letter(i)} ${o}`, value: letter(i) }))" />
+          <n-checkbox-group v-else v-model:value="multiAnswer">
+            <n-space>
+              <n-checkbox v-for="(opt, i) in qForm.options" :key="i" :value="letter(i)">{{ letter(i) }} {{ opt }}</n-checkbox>
+            </n-space>
+          </n-checkbox-group>
+        </n-form-item>
+        <n-form-item label="分值"><n-input-number v-model:value="qForm.score" :min="0" :max="100" /></n-form-item>
+        <n-form-item label="知识点"><n-input v-model:value="qForm.knowledgePoint" /></n-form-item>
+        <n-form-item label="解析"><n-input v-model:value="qForm.analysis" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" /></n-form-item>
+      </n-form>
+      <template #action>
+        <n-space justify="end">
+          <n-button @click="qVisible = false">取消</n-button>
+          <n-button type="primary" :loading="qSaving" @click="onSaveQuestion">保存</n-button>
+        </n-space>
       </template>
-    </el-dialog>
+    </n-modal>
 
-    <!-- 批改对话框：提交情况 → 指定学生复核 -->
-    <el-dialog v-model="rvVisible" :title="`批改 · ${currentAssignment?.title || ''}`" width="900px" top="5vh">
+    <n-modal v-model:show="rvVisible" preset="card" :title="`批改 · ${currentAssignment?.title || ''}`" class="work-modal">
       <template v-if="!currentResult">
-        <el-table :data="submissions" v-loading="rvLoading" stripe>
-          <el-table-column prop="studentName" label="学生" width="120" />
-          <el-table-column label="得分" width="90">
-            <template #default="{ row }">{{ row.earnedScore }} / {{ currentAssignment?.totalScore }}</template>
-          </el-table-column>
-          <el-table-column label="作答" width="110">
-            <template #default="{ row }">{{ row.answeredCount }} / {{ row.questionCount }}</template>
-          </el-table-column>
-          <el-table-column label="待复核" width="90">
-            <template #default="{ row }">
-              <el-tag v-if="row.pendingReview > 0" type="warning">{{ row.pendingReview }} 题</el-tag>
-              <span v-else class="muted">无</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="提交时间" min-width="150">
-            <template #default="{ row }">{{ row.submitTime || '—' }}</template>
-          </el-table-column>
-          <el-table-column label="操作" width="100">
-            <template #default="{ row }">
-              <el-button size="small" type="primary" @click="openStudentResult(row)">复核</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <el-empty v-if="!rvLoading && submissions.length === 0" description="暂无学生提交" />
+        <n-table :single-line="false" :bordered="false">
+          <thead><tr><th>学生</th><th>得分</th><th>作答</th><th>待复核</th><th>提交时间</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr v-for="row in submissions" :key="row.studentId">
+              <td>{{ row.studentName }}</td>
+              <td>{{ row.earnedScore }} / {{ currentAssignment?.totalScore }}</td>
+              <td>{{ row.answeredCount }} / {{ row.questionCount }}</td>
+              <td><n-tag v-if="row.pendingReview > 0" type="warning" round>{{ row.pendingReview }} 题</n-tag><span v-else class="muted">无</span></td>
+              <td>{{ row.submitTime || '—' }}</td>
+              <td><n-button size="small" type="primary" secondary @click="openStudentResult(row)">复核</n-button></td>
+            </tr>
+          </tbody>
+        </n-table>
+        <n-empty v-if="!rvLoading && submissions.length === 0" description="暂无学生提交" />
       </template>
-
-      <!-- 单名学生作答复核 -->
-      <div v-else>
+      <template v-else>
         <div class="rv-back">
-          <el-button text type="primary" @click="currentResult = null">← 返回提交列表</el-button>
+          <n-button text type="primary" @click="currentResult = null">← 返回提交列表</n-button>
           <span class="muted">{{ currentResult.assignmentTitle }} · 总分 {{ currentResult.earnedScore }} / {{ currentResult.totalScore }}</span>
         </div>
         <div v-for="(item, i) in currentResult.items" :key="i" class="rv-item">
           <div class="rv-q">
             <span class="rv-seq">{{ i + 1 }}.</span>
-            <span v-if="item.type === 5" class="tag-ai">{{ typeLabel(item.type) }}</span>
-            <el-tag v-else size="small" effect="plain">{{ typeLabel(item.type) }}</el-tag>
+            <n-tag v-if="item.type === 5" type="warning" round>{{ typeLabel(item.type) }}</n-tag>
+            <n-tag v-else type="info" round>{{ typeLabel(item.type) }}</n-tag>
             <span class="rv-content">{{ item.content }}</span>
           </div>
           <div v-if="item.options && item.options.length" class="rv-opts">
             <span v-for="(o, idx) in item.options" :key="idx" class="rv-opt">{{ letter(idx) }}. {{ o }}</span>
           </div>
           <div class="rv-ans">
-            <span class="muted">学生作答：</span>
-            <b>{{ item.yourAnswer || '（空）' }}</b>
-            <el-tag v-if="item.correct === true" type="success" size="small" effect="plain">正确</el-tag>
-            <el-tag v-else-if="item.correct === false" type="danger" size="small" effect="plain">错误</el-tag>
-            <el-tag v-else-if="item.gradeType === 2 && item.reviewStatus === 0" type="warning" size="small" effect="plain">AI 批改·待复核</el-tag>
-            <el-tag v-else-if="item.gradeType === 2" type="info" size="small" effect="plain">教师已复核</el-tag>
+            <span class="muted">学生作答：</span><span class="answer-html" v-html="formatAnswer(item.yourAnswer)"></span>
+            <n-tag v-if="item.correct === true" type="success" size="small" round>正确</n-tag>
+            <n-tag v-else-if="item.correct === false" type="error" size="small" round>错误</n-tag>
+            <n-tag v-else-if="item.gradeType === 2 && item.reviewStatus === 0" type="warning" size="small" round>AI 批改·待复核</n-tag>
+            <n-tag v-else-if="item.gradeType === 2" type="info" size="small" round>教师已复核</n-tag>
           </div>
           <div class="rv-ans muted">参考答案：{{ item.standardAnswer }}</div>
           <div class="rv-feedback">{{ item.feedback }}</div>
-          <!-- 主观题可复核调分 -->
           <div v-if="item.gradeType === 2" class="rv-edit">
             <span>本题得分：</span>
-            <el-input-number v-model="item.score" :min="0" :max="currentAssignment?.totalScore" size="small" />
-            <el-input v-model="item.feedback" placeholder="复核反馈" size="small" style="width: 280px; margin-left: 10px"
-              @input="markChanged(item)" />
+            <n-input-number v-model:value="item.score" :min="0" :max="currentAssignment?.totalScore" size="small" @update:value="markChanged(item)" />
+            <n-input v-model:value="item.feedback" placeholder="复核反馈" style="width: 280px" @input="markChanged(item)" />
           </div>
         </div>
         <div class="rv-footer">
-          <el-button type="primary" :loading="rvSaving" @click="saveReview">保存复核</el-button>
+          <n-button type="primary" :loading="rvSaving" @click="saveReview">保存复核</n-button>
         </div>
-      </div>
-    </el-dialog>
+      </template>
+      <template #action>
+        <n-space justify="end">
+          <n-button @click="rvVisible = false">关闭</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { NButton, NCard, NCheckbox, NCheckboxGroup, NEmpty, NForm, NFormItem, NGrid, NGridItem, NInput, NInputNumber, NModal, NPagination, NRadio, NRadioGroup, NSpace, NSelect, NTable, NTag, createDiscreteApi } from 'naive-ui'
 import { listCourses } from '../api/course'
-import {
-  listAssignments as fetchAssignments, saveAssignment, deleteAssignment,
-  getAssignmentDetail, saveQuestion, deleteQuestion,
-  getAnswerResult, getSubmissions, reviewAnswer
-} from '../api/homework'
+import { listAssignments as fetchAssignments, saveAssignment, deleteAssignment, getAssignmentDetail, saveQuestion, deleteQuestion, getAnswerResult, getSubmissions, reviewAnswer, autoGenerateQuestions } from '../api/homework'
+import DOMPurify from 'dompurify'
 
+const { message, dialog } = createDiscreteApi(['message', 'dialog'])
 const courses = ref([])
 const selectedCourse = ref(null)
 const assignments = ref([])
 const loading = ref(false)
-
-const questionTypes = [
-  { value: 1, label: '单选' }, { value: 2, label: '多选' },
-  { value: 3, label: '判断' }, { value: 4, label: '填空' }, { value: 5, label: '简答' }
-]
+const currentPage = ref(1)
+const pageSize = 10
+const pagedAssignments = computed(() => assignments.value.slice((currentPage.value - 1) * pageSize, currentPage.value * pageSize))
+const questionTypes = [{ value: 1, label: '单选' }, { value: 2, label: '多选' }, { value: 3, label: '判断' }, { value: 4, label: '填空' }, { value: 5, label: '简答' }]
+const questionTypeOptions = questionTypes
 const typeLabel = (t) => questionTypes.find((x) => x.value === t)?.label || '未知'
+const courseOptions = computed(() => courses.value.map((c) => ({ label: c.courseName, value: c.id })))
 const activeCount = computed(() => assignments.value.filter((a) => a.status === 1).length)
 const endedCount = computed(() => assignments.value.filter((a) => a.status !== 1).length)
-
-// ============ 作业 CRUD ============
+const statCards = computed(() => [{ label: '作业总数', value: assignments.value.length }, { label: '进行中', value: activeCount.value }, { label: '已结束', value: endedCount.value }])
 const asmVisible = ref(false)
 const asmIsEdit = ref(false)
 const asmSaving = ref(false)
 const asmForm = reactive({ id: null, courseId: null, title: '', type: 1, description: '', totalScore: 100 })
-const timeRange = ref([])
-
-function resetAsmForm() {
-  Object.assign(asmForm, { id: null, courseId: null, title: '', type: 1, description: '', totalScore: 100 })
-  timeRange.value = []
-}
-function openAssignmentCreate() {
-  if (!courses.value.length) { ElMessage.warning('请先创建课程'); return }
-  asmIsEdit.value = false
-  resetAsmForm()
-  asmVisible.value = true
-}
-function openAssignmentEdit(row) {
-  asmIsEdit.value = true
-  Object.assign(asmForm, {
-    id: row.id, courseId: row.courseId, title: row.title, type: row.type,
-    description: row.description, totalScore: row.totalScore
-  })
-  timeRange.value = row.startTime && row.endTime ? [row.startTime, row.endTime] : []
-  asmVisible.value = true
-}
-async function onSaveAssignment() {
-  if (!asmForm.courseId) { ElMessage.warning('请选择课程'); return }
-  if (!asmForm.title) { ElMessage.warning('请填写标题'); return }
-  asmSaving.value = true
-  try {
-    const payload = {
-      ...asmForm,
-      startTime: timeRange.value?.[0] || null,
-      endTime: timeRange.value?.[1] || null
-    }
-    await saveAssignment(payload)
-    ElMessage.success('保存成功')
-    asmVisible.value = false
-    await loadAssignments()
-  } finally {
-    asmSaving.value = false
-  }
-}
-async function onDeleteAssignment(row) {
-  await ElMessageBox.confirm(`确定删除作业「${row.title}」吗？`, '提示', { type: 'warning' })
-  await deleteAssignment(row.id)
-  ElMessage.success('已删除')
-  await loadAssignments()
-}
-
-// ============ 题目管理 ============
+const timeRange = ref(null)
 const qmVisible = ref(false)
 const currentAssignment = ref(null)
 const questions = ref([])
@@ -334,92 +270,10 @@ const qVisible = ref(false)
 const qIsEdit = ref(false)
 const qSaving = ref(false)
 const multiAnswer = ref([])
-const qForm = reactive({
-  id: null, assignmentId: null, type: 1, content: '', options: [], answer: '',
-  analysis: '', score: 10, knowledgePoint: '', seq: null
-})
-
-const totalQuestionScore = computed(() => questions.value.reduce((s, q) => s + (q.score || 0), 0))
-
-function openQuestionManage(row) {
-  currentAssignment.value = row
-  qmVisible.value = true
-  loadQuestions(row.id)
-}
-async function loadQuestions(id) {
-  const detail = await getAssignmentDetail(id)
-  questions.value = detail.questions || []
-}
-function letter(i) { return String.fromCharCode(65 + i) }
-
-function resetQForm() {
-  Object.assign(qForm, {
-    id: null, assignmentId: currentAssignment.value?.id, type: 1, content: '',
-    options: ['', ''], answer: '', analysis: '', score: 10, knowledgePoint: '', seq: null
-  })
-  multiAnswer.value = []
-}
-function openQuestionCreate() {
-  qIsEdit.value = false
-  resetQForm()
-  qVisible.value = true
-}
-function openQuestionEdit(row) {
-  qIsEdit.value = true
-  Object.assign(qForm, {
-    id: row.id, assignmentId: row.assignmentId, type: row.type, content: row.content,
-    options: row.options ? [...row.options] : (row.type === 1 || row.type === 2 ? ['', ''] : []),
-    answer: row.answer || '', analysis: row.analysis || '', score: row.score,
-    knowledgePoint: row.knowledgePoint || '', seq: row.seq
-  })
-  multiAnswer.value = row.type === 2 && row.answer ? row.answer.split('') : []
-  qVisible.value = true
-}
-function onQuestionTypeChange() {
-  // 切换题型时重置选项/答案，避免脏数据
-  if (qForm.type === 1 || qForm.type === 2) {
-    if (!qForm.options.length) qForm.options = ['', '']
-  } else if (qForm.type === 3) {
-    qForm.options = ['正确', '错误']
-    qForm.answer = qForm.answer || '正确'
-  } else {
-    qForm.options = []
-  }
-  multiAnswer.value = []
-}
-function addOption() { qForm.options.push('') }
-function removeOption(i) { qForm.options.splice(i, 1) }
-
-async function onSaveQuestion() {
-  if (!qForm.content) { ElMessage.warning('请填写题干'); return }
-  if ((qForm.type === 1 || qForm.type === 2) && qForm.options.filter((o) => o && o.trim()).length < 2) {
-    ElMessage.warning('请至少填写两个选项'); return
-  }
-  if (!qForm.answer) { ElMessage.warning('请填写标准答案'); return }
-  qSaving.value = true
-  try {
-    const payload = { ...qForm }
-    // 多选答案：将选中字母拼为字符串（如 ABC）
-    if (payload.type === 2) payload.answer = (multiAnswer.value || []).join('')
-    // 过滤空选项
-    payload.options = payload.options.filter((o) => o && o.trim())
-    if (payload.type !== 1 && payload.type !== 2) payload.options = []
-    await saveQuestion(payload)
-    ElMessage.success('保存成功')
-    qVisible.value = false
-    await loadQuestions(currentAssignment.value.id)
-  } finally {
-    qSaving.value = false
-  }
-}
-async function onDeleteQuestion(row) {
-  await ElMessageBox.confirm('确定删除该题目吗？', '提示', { type: 'warning' })
-  await deleteQuestion(row.id)
-  ElMessage.success('已删除')
-  await loadQuestions(currentAssignment.value.id)
-}
-
-// ============ 批改 / 复核 ============
+const aiGenVisible = ref(false)
+const aiGenLoading = ref(false)
+const aiGenForm = ref({ type: 1, count: 5 })
+const qForm = reactive({ id: null, assignmentId: null, type: 1, content: '', options: [], answer: '', analysis: '', score: 10, knowledgePoint: '', seq: null })
 const rvVisible = ref(false)
 const rvLoading = ref(false)
 const submissions = ref([])
@@ -427,102 +281,146 @@ const currentResult = ref(null)
 const rvSaving = ref(false)
 const changedSet = ref(new Set())
 
-function openReview(row) {
-  currentAssignment.value = row
-  currentResult.value = null
-  rvVisible.value = true
-  loadSubmissions(row.id)
-}
-async function loadSubmissions(id) {
-  rvLoading.value = true
-  try {
-    submissions.value = await getSubmissions(id)
-  } finally {
-    rvLoading.value = false
-  }
-}
-async function openStudentResult(row) {
-  const res = await getAnswerResult(currentAssignment.value.id, row.studentId)
-  // 复制一份用于编辑（含 answerId）
-  currentResult.value = JSON.parse(JSON.stringify(res))
-  currentResult.value.items.forEach((it) => { it._origScore = it.score; it._origFeedback = it.feedback })
-  changedSet.value = new Set()
-}
-function markChanged(item) { changedSet.value.add(item.answerId) }
+const totalQuestionScore = computed(() => questions.value.reduce((s, q) => s + (q.score || 0), 0))
 
+function letter(i) { return String.fromCharCode(65 + i) }
+// 老师批改页把附件链接统一改成下载，避免直接打开文档预览
+function formatAnswer(html) {
+  if (!html) return '（空）'
+  const doc = new DOMParser().parseFromString(String(html), 'text/html')
+  doc.querySelectorAll('a[href]').forEach((a) => {
+    a.setAttribute('download', '')
+    a.removeAttribute('target')
+    a.setAttribute('rel', 'noopener noreferrer')
+  })
+  return DOMPurify.sanitize(doc.body.innerHTML)
+}
+function resetAsmForm() { Object.assign(asmForm, { id: null, courseId: null, title: '', type: 1, description: '', totalScore: 100 }); timeRange.value = null }
+function openAssignmentCreate() { if (!courses.value.length) return message.warning('请先创建课程'); asmIsEdit.value = false; resetAsmForm(); asmVisible.value = true }
+function openAssignmentEdit(row) { asmIsEdit.value = true; Object.assign(asmForm, { id: row.id, courseId: row.courseId, title: row.title, type: row.type, description: row.description, totalScore: row.totalScore }); timeRange.value = row.startTime && row.endTime ? [new Date(row.startTime).getTime(), new Date(row.endTime).getTime()] : null; asmVisible.value = true }
+async function onSaveAssignment() {
+  if (!asmForm.courseId) return message.warning('请选择课程')
+  if (!asmForm.title) return message.warning('请填写标题')
+  asmSaving.value = true
+  try {
+    const payload = { ...asmForm, startTime: timeRange.value?.[0] || null, endTime: timeRange.value?.[1] || null }
+    await saveAssignment(payload)
+    message.success('保存成功')
+    asmVisible.value = false
+    await loadAssignments()
+  } finally { asmSaving.value = false }
+}
+async function onDeleteAssignment(row) {
+  const ok = await dialog.warning({ title: '提示', content: `确定删除作业「${row.title}」吗？`, positiveText: '确定', negativeText: '取消' })
+  if (!ok) return
+  await deleteAssignment(row.id)
+  message.success('已删除')
+  await loadAssignments()
+}
+async function openQuestionManage(row) { currentAssignment.value = row; qmVisible.value = true; const detail = await getAssignmentDetail(row.id); questions.value = detail.questions || [] }
+function resetQForm() { Object.assign(qForm, { id: null, assignmentId: currentAssignment.value?.id, type: 1, content: '', options: ['', ''], answer: '', analysis: '', score: 10, knowledgePoint: '', seq: null }); multiAnswer.value = [] }
+function openQuestionCreate() { qIsEdit.value = false; resetQForm(); qVisible.value = true }
+function openAiGenerate() { aiGenForm.value = { type: 1, count: 5 }; aiGenVisible.value = true }
+async function onAiGenerate() {
+  if (!currentAssignment.value?.courseId) return message.warning('无法获取课程信息')
+  aiGenLoading.value = true
+  try {
+    await autoGenerateQuestions(currentAssignment.value.id, currentAssignment.value.courseId, aiGenForm.value.count, aiGenForm.value.type)
+    message.success('生成完成')
+    aiGenVisible.value = false
+    const detail = await getAssignmentDetail(currentAssignment.value.id)
+    questions.value = detail.questions || []
+  } finally { aiGenLoading.value = false }
+}
+function openQuestionEdit(row) { qIsEdit.value = true; Object.assign(qForm, { id: row.id, assignmentId: row.assignmentId || currentAssignment.value?.id, type: row.type, content: row.content, options: row.options ? [...row.options] : (row.type === 1 || row.type === 2 ? ['', ''] : []), answer: row.answer || '', analysis: row.analysis || '', score: row.score, knowledgePoint: row.knowledgePoint || '', seq: row.seq }); multiAnswer.value = row.type === 2 && row.answer ? row.answer.split('') : []; qVisible.value = true }
+function onQuestionTypeChange() { if (qForm.type === 1 || qForm.type === 2) { if (!qForm.options.length) qForm.options = ['', '']; qForm.answer = '' } else if (qForm.type === 3) { qForm.options = ['正确', '错误']; qForm.answer = '正确' } else { qForm.options = []; qForm.answer = '' }; multiAnswer.value = [] }
+function addOption() { qForm.options.push('') }
+function removeOption(i) { qForm.options.splice(i, 1) }
+async function onSaveQuestion() {
+  if (!qForm.content) return message.warning('请填写题干')
+  if ((qForm.type === 1 || qForm.type === 2) && qForm.options.filter((o) => o && o.trim()).length < 2) return message.warning('请至少填写两个选项')
+  if (qForm.type === 2) qForm.answer = (multiAnswer.value || []).join('')
+  if (!qForm.answer) return message.warning(qForm.type === 2 ? '请至少选择一个正确答案' : '请填写标准答案')
+  qSaving.value = true
+  try {
+    const payload = { ...qForm, assignmentId: qForm.assignmentId || currentAssignment.value?.id, options: qForm.options.filter((o) => o && o.trim()) }
+    if (payload.type !== 1 && payload.type !== 2) payload.options = []
+    await saveQuestion(payload)
+    message.success('保存成功')
+    qVisible.value = false
+    const detail = await getAssignmentDetail(currentAssignment.value.id)
+    questions.value = detail.questions || []
+  } finally { qSaving.value = false }
+}
+async function onDeleteQuestion(row) {
+  const ok = await dialog.warning({ title: '提示', content: '确定删除该题目吗？', positiveText: '确定', negativeText: '取消' })
+  if (!ok) return
+  await deleteQuestion(row.id)
+  message.success('已删除')
+  const detail = await getAssignmentDetail(currentAssignment.value.id)
+  questions.value = detail.questions || []
+}
+function openReview(row) { currentAssignment.value = row; currentResult.value = null; rvVisible.value = true; loadSubmissions(row.id) }
+async function loadSubmissions(id) { rvLoading.value = true; try { submissions.value = await getSubmissions(id) } finally { rvLoading.value = false } }
+async function openStudentResult(row) { currentResult.value = JSON.parse(JSON.stringify(await getAnswerResult(currentAssignment.value.id, row.studentId))); changedSet.value = new Set() }
+function markChanged(item) { changedSet.value.add(item.answerId) }
 async function saveReview() {
   const items = currentResult.value.items.filter((it) => it.gradeType === 2)
-  if (!items.length) { ElMessage.info('没有需要复核的主观题'); return }
+  if (!items.length) return message.info('没有需要复核的主观题')
   rvSaving.value = true
   try {
     for (const it of items) {
-      await reviewAnswer({
-        answerId: it.answerId,
-        score: it.score,
-        feedback: it.feedback,
-        reviewStatus: 2
-      })
+      // 未改分/反馈视为认可 AI 初评；改动后记录为教师调整分数
+      const reviewStatus = changedSet.value.has(it.answerId) ? 2 : 1
+      await reviewAnswer({ answerId: it.answerId, score: it.score, feedback: it.feedback, reviewStatus })
     }
-    ElMessage.success('复核完成')
+    message.success('复核完成')
     await loadSubmissions(currentAssignment.value.id)
     currentResult.value = null
-  } finally {
-    rvSaving.value = false
-  }
+  } finally { rvSaving.value = false }
 }
-
-// ============ 初始化 ============
-async function loadAssignments() {
-  loading.value = true
-  try {
-    assignments.value = await fetchAssignments(selectedCourse.value)
-  } finally {
-    loading.value = false
-  }
-}
-async function loadCourses() {
-  try { courses.value = await listCourses() } catch (e) { courses.value = [] }
-}
+async function loadAssignments() { loading.value = true; try { assignments.value = await fetchAssignments(selectedCourse.value) } finally { loading.value = false } }
+async function loadCourses() { courses.value = await listCourses() }
 onMounted(() => { loadCourses(); loadAssignments() })
 </script>
 
 <style scoped>
-.hw-wrap { display: flex; flex-direction: column; }
-.head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.page-title { margin: 0; }
-.head-right { display: flex; align-items: center; gap: 10px; }
-.muted { color: var(--text-2); }
-/* 主观题（AI 批改）渐变徽标：本模块的签名元素 */
-.tag-ai {
-  display: inline-block; padding: 1px 9px; border-radius: 8px; font-size: 12px; line-height: 18px;
-  color: #fff; background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
-  box-shadow: 0 2px 8px rgba(124, 77, 255, 0.25);
-}
-/* 教师总览卡 */
-.stat-row { display: flex; gap: 14px; margin-bottom: 14px; }
-.stat-card {
-  flex: 1; background: var(--card-bg); border-radius: var(--radius); box-shadow: var(--shadow);
-  padding: 16px 20px; display: flex; flex-direction: column; gap: 4px;
-}
-.stat-num { font-size: 26px; font-weight: 800; color: var(--text-1); line-height: 1.1; }
-.stat-num.grad {
-  background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-.stat-label { font-size: 13px; color: var(--text-2); }
+.teacher-workbench { display: flex; flex-direction: column; gap: 16px; }
+.hero { display: grid; grid-template-columns: 1.4fr 0.9fr; gap: 16px; }
+.eyebrow { color: #4cb6c2; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+.hero h2 { margin: 8px 0 10px; font-size: 28px; color: #16313b; }
+.hero p { margin: 0; max-width: 60ch; color: #5f6b73; line-height: 1.7; }
+.hero-card, .stat-card, .panel, .control-card { border-radius: 18px; box-shadow: 0 16px 40px rgba(48, 102, 107, 0.08); }
+.hero-card { background: linear-gradient(135deg, #f4fbfb 0%, #eaf8f7 100%); }
+.hero-card-title { color: #5f6b73; font-size: 12px; margin-bottom: 8px; }
+.hero-card-value { font-size: 22px; font-weight: 700; color: #18323d; margin-bottom: 6px; }
+.hero-card-sub { color: #5f6b73; font-size: 13px; line-height: 1.6; }
+.stat-card { background: #fff; padding: 18px 20px; }
+.stat-value { font-size: 30px; font-weight: 700; color: #18323d; }
+.stat-label { color: #6b7280; margin-top: 6px; font-size: 13px; }
+.panel { background: rgba(255,255,255,0.9); padding: 6px; }
+.pagination-wrap { display: flex; justify-content: flex-end; padding-top: 16px; }
+.muted { color: #6b7280; }
 .qm-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.opt-list { width: 100%; }
-.opt-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.opt-key { width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
-  color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
-.rv-back { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.rv-item { border: 1px solid #eef0f7; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: #fafbff; }
-.rv-q { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.rv-seq { font-weight: 700; color: var(--brand-1); }
-.rv-content { font-weight: 500; }
-.rv-opts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 6px 0; color: var(--text-2); }
-.rv-ans { margin: 4px 0; }
-.rv-feedback { margin: 6px 0; color: var(--text-1); font-size: 13px; }
-.rv-edit { display: flex; align-items: center; margin-top: 8px; }
-.rv-footer { text-align: right; margin-top: 8px; }
+.opt-list { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+.opt-row { display: flex; align-items: center; gap: 8px; }
+.opt-key { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg,#42B5BB,#87D8C9); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.rv-back { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.rv-item { border: 1px solid #e4f4f2; border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; background: #f7fbfb; }
+.rv-q, .rv-ans { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rv-q { margin-bottom: 6px; }
+.rv-seq { font-weight: 700; color: #2f7f86; }
+.rv-content { font-weight: 600; }
+.rv-opts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 6px 0; color: #5f6b73; font-size: 13.5px; }
+.rv-feedback { margin: 8px 0 0; color: #1f2937; font-size: 13px; line-height: 1.6; }
+.answer-html { display: inline-block; max-width: 100%; line-height: 1.6; }
+.answer-html :deep(p) { margin: 0 0 4px; }
+.answer-html :deep(ul) { margin: 4px 0; padding-left: 20px; }
+.answer-html :deep(img) { max-width: min(100%, 520px); border-radius: 10px; display: block; margin: 8px 0; }
+.answer-html :deep(a) { color: #2f7f86; font-weight: 700; }
+.rv-edit { display: flex; align-items: center; margin-top: 10px; gap: 8px; }
+.rv-footer { text-align: right; margin-top: 10px; }
+.work-modal { width: min(900px, calc(100vw - 24px)); }
+.mini-modal { width: min(420px, calc(100vw - 24px)); }
+@media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
 </style>

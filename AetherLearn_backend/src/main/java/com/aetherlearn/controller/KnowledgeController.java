@@ -2,6 +2,7 @@ package com.aetherlearn.controller;
 
 import com.aetherlearn.common.Result;
 import com.aetherlearn.common.SecurityUtils;
+import com.aetherlearn.dto.QaSource;
 import com.aetherlearn.entity.KnowledgeDoc;
 import com.aetherlearn.service.KnowledgeService;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -33,7 +34,7 @@ public class KnowledgeController {
     /**
      * 上传文档：解析 + 切片入库（仅 教师/管理员）
      */
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('TEACHER')")
     @PostMapping("/upload")
     public Result<KnowledgeDoc> upload(@RequestParam Long courseId,
                                        @RequestParam("file") MultipartFile file) {
@@ -52,10 +53,27 @@ public class KnowledgeController {
     /**
      * 删除文档（软删除，仅 教师/管理员）
      */
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('TEACHER')")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         knowledgeService.delete(id);
         return Result.success();
     }
+
+    /**
+     * 检索知识库切片（M2 知识库检索预览）
+     * <p>使用 BM25 检索相关切片，返回来源信息和内容预览。</p>
+     *
+     * @param courseId 课程ID
+     * @param query    搜索关键词
+     * @param topK     返回数量上限（默认 10）
+     * @return 按相关性降序排列的切片来源列表
+     */
+    @GetMapping("/search")
+    public Result<List<QaSource>> search(@RequestParam Long courseId,
+                                         @RequestParam String query,
+                                         @RequestParam(defaultValue = "10") int topK) {
+        return Result.success(knowledgeService.searchChunks(courseId, query, topK));
+    }
 }
+

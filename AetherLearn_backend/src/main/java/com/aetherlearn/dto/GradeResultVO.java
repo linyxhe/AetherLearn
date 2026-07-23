@@ -36,6 +36,7 @@ public class GradeResultVO implements Serializable {
         private String content;
         private List<String> options;
         private String yourAnswer;       // 学生作答
+        private String imageUrl;         // 作答图片路径
         private String standardAnswer;   // 标准答案（讲评展示）
         private String analysis;         // 解析
         private Integer score;           // 本题得分

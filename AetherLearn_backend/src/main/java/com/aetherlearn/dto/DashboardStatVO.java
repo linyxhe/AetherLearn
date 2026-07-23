@@ -74,5 +74,9 @@ public class DashboardStatVO implements Serializable {
         private String studentName;
         private double avgScore;
         private double completionRate;
+        /** 学情预警：低分或低完成率时为 true（F-LEARN-05） */
+        private boolean warning;
+        /** 预警原因（如"低分""低完成率"） */
+        private String warningReason;
     }
 }

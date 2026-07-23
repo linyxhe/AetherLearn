@@ -47,4 +47,16 @@ public interface AssignmentService {
 
     /** 教师复核单题作答（调整分数/反馈/复核状态） */
     void review(ReviewRequest request);
+
+    /**
+     * AI 自动出题（L1）
+     * <p>基于课程知识库内容，使用 LLM 自动生成指定数量和题型的题目。</p>
+     *
+     * @param assignmentId 作业ID
+     * @param courseId     课程ID（用于检索知识库）
+     * @param count        生成题目数量
+     * @param questionType 题型（1-单选 2-多选 3-判断 4-填空 5-简答）
+     * @return 生成的题目列表
+     */
+    List<Question> autoGenerateQuestions(Long assignmentId, Long courseId, int count, int questionType);
 }

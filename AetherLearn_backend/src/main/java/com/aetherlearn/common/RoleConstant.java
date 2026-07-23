@@ -11,7 +11,7 @@ public final class RoleConstant {
     public static final int TEACHER = 2;
     public static final int STUDENT = 3;
 
-    /** 角色中文名 */
+    /** 角色英文名（用于 Spring Security 权限） */
     public static final String ADMIN_NAME = "ADMIN";
     public static final String TEACHER_NAME = "TEACHER";
     public static final String STUDENT_NAME = "STUDENT";
@@ -29,13 +29,23 @@ public final class RoleConstant {
         };
     }
 
-    /** 由数字角色编码得到角色名（如 "TEACHER"） */
+    /** 由数字角色编码得到英文角色名（如 "TEACHER"） */
     public static String toRoleName(Integer role) {
         return switch (role) {
             case ADMIN -> ADMIN_NAME;
             case TEACHER -> TEACHER_NAME;
             case STUDENT -> STUDENT_NAME;
             default -> "UNKNOWN";
+        };
+    }
+
+    /** L11 由数字角色编码得到中文角色名（如 "教师"） */
+    public static String toRoleNameCn(Integer role) {
+        return switch (role) {
+            case ADMIN -> "管理员";
+            case TEACHER -> "教师";
+            case STUDENT -> "学生";
+            default -> "未知";
         };
     }
 }

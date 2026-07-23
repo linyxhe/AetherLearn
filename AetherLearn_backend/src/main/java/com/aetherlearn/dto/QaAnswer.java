@@ -21,4 +21,12 @@ public class QaAnswer {
 
     /** 引用的知识来源片段 */
     private List<QaSource> sources;
+
+    // L8 分阶段耗时统计（毫秒）
+    /** BM25 检索耗时 */
+    private long retrievalMs;
+    /** LLM 调用耗时 */
+    private long llmMs;
+    /** 数据库写入耗时 */
+    private long dbMs;
 }

@@ -32,4 +32,12 @@ public class AuthController {
         LoginResponse response = authService.login(request);
         return Result.success("登录成功", response);
     }
+
+    /**
+     * 退出登录：JWT 无状态，前端清除 token 即可；此端点预留用于未来扩展（如 token 黑名单）
+     */
+    @PostMapping("/logout")
+    public Result<Void> logout() {
+        return Result.success("退出成功", null);
+    }
 }

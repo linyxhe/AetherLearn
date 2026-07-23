@@ -4,6 +4,7 @@ import com.aetherlearn.dto.AnalyticsOverviewVO;
 import com.aetherlearn.dto.DashboardStatVO;
 import com.aetherlearn.mapper.StatMapper;
 import com.aetherlearn.service.DashboardService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -20,16 +21,31 @@ import java.util.Map;
 @Service
 public class DashboardServiceImpl implements DashboardService {
 
-    /** 成绩分布固定 5 个分段（顺序不可乱） */
-    private static final String[] SCORE_RANGES = {"0-59", "60-69", "70-79", "80-89", "90-100"};
+    /** 成绩分布分段（L5 可配置，默认 5 段） */
+    @Value("${aetherlearn.score-ranges:0-59,60-69,70-79,80-89,90-100}")
+    private String scoreRangesStr;
 
-    /** 知识盲区判定阈值：错误率 ≥ 40% 视为薄弱 */
-    private static final double WEAK_THRESHOLD = 40.0;
+    /** 知识盲区判定阈值（L6 可配置）：错误率 ≥ 阈值视为薄弱 */
+    @Value("${aetherlearn.weak-threshold:40.0}")
+    private double weakThreshold;
+
+    /** 学习建议数量上限（L4 可配置） */
+    @Value("${aetherlearn.suggestion-limit:10}")
+    private int suggestionLimit;
+
+    /** 学情预警阈值（F-LEARN-05）：平均分 < 60 或完成率 < 50% 视为预警 */
+    private static final double WARN_SCORE_THRESHOLD = 60.0;
+    private static final double WARN_COMPLETION_THRESHOLD = 50.0;
 
     private final StatMapper statMapper;
 
     public DashboardServiceImpl(StatMapper statMapper) {
         this.statMapper = statMapper;
+    }
+
+    /** 获取成绩分布分段数组（L5 可配置） */
+    private String[] getScoreRanges() {
+        return scoreRangesStr.split(",");
     }
 
     @Override
@@ -96,10 +112,21 @@ public class DashboardServiceImpl implements DashboardService {
         vo.setScoreTrend(buildScoreTrend(statMapper.selectStudentScoreTrend(studentId)));
 
         // F-LEARN-02 知识盲区
-        vo.setKnowledgeGaps(buildKnowledgeGaps(statMapper.selectStudentKnowledgeGaps(studentId)));
+        List<AnalyticsOverviewVO.KnowledgeGap> gaps = buildKnowledgeGaps(statMapper.selectStudentKnowledgeGaps(studentId));
+        vo.setKnowledgeGaps(gaps);
 
-        // F-LEARN-04 个性化建议
-        vo.setSuggestions(buildSuggestions(statMapper.selectStudentSuggestions(studentId)));
+        // F-LEARN-03 可视化学习路径（根据薄弱知识点生成步骤条）
+        vo.setLearningPath(buildLearningPath(gaps));
+
+        // F-LEARN-04 个性化建议（L3 动态生成 + 静态建议合并）
+        List<AnalyticsOverviewVO.Suggestion> dbSuggestions = buildSuggestions(
+                statMapper.selectStudentSuggestions(studentId, suggestionLimit));
+        List<AnalyticsOverviewVO.Suggestion> dynamicSuggestions = buildDynamicSuggestions(gaps);
+        // 合并：动态建议在前，静态建议在后
+        List<AnalyticsOverviewVO.Suggestion> allSuggestions = new ArrayList<>();
+        allSuggestions.addAll(dynamicSuggestions);
+        allSuggestions.addAll(dbSuggestions);
+        vo.setSuggestions(allSuggestions.subList(0, Math.min(allSuggestions.size(), suggestionLimit)));
 
         return vo;
     }
@@ -117,7 +144,7 @@ public class DashboardServiceImpl implements DashboardService {
 
     private List<DashboardStatVO.ScoreRange> buildEmptyScoreDistribution() {
         List<DashboardStatVO.ScoreRange> list = new ArrayList<>();
-        for (String r : SCORE_RANGES) {
+        for (String r : getScoreRanges()) {
             DashboardStatVO.ScoreRange item = new DashboardStatVO.ScoreRange();
             item.setRange(r);
             item.setCount(0);
@@ -128,7 +155,7 @@ public class DashboardServiceImpl implements DashboardService {
 
     private List<DashboardStatVO.ScoreRange> buildScoreDistribution(List<Map<String, Object>> rows) {
         Map<String, Long> map = new LinkedHashMap<>();
-        for (String r : SCORE_RANGES) {
+        for (String r : getScoreRanges()) {
             map.put(r, 0L);
         }
         if (rows != null) {
@@ -216,7 +243,17 @@ public class DashboardServiceImpl implements DashboardService {
             item.setStudentName(String.valueOf(row.get("student_name")));
             item.setAvgScore(toDouble(row.get("avg_score")));
             long submitted = toLong(row.get("submitted_count"));
-            item.setCompletionRate(totalAssignments > 0 ? submitted * 100.0 / totalAssignments : 0);
+            double completionRate = totalAssignments > 0 ? submitted * 100.0 / totalAssignments : 0;
+            item.setCompletionRate(completionRate);
+            // 学情预警（F-LEARN-05）：低分或低完成率
+            StringBuilder reason = new StringBuilder();
+            if (item.getAvgScore() < WARN_SCORE_THRESHOLD) reason.append("低分");
+            if (completionRate < WARN_COMPLETION_THRESHOLD) {
+                if (reason.length() > 0) reason.append("、");
+                reason.append("低完成率");
+            }
+            item.setWarning(reason.length() > 0);
+            item.setWarningReason(reason.length() > 0 ? reason.toString() : null);
             list.add(item);
         }
         return list;
@@ -250,7 +287,7 @@ public class DashboardServiceImpl implements DashboardService {
             double errorRate = total > 0 ? wrong * 100.0 / total : 0;
             item.setErrorRate(errorRate);
             item.setMastery(100 - errorRate);
-            item.setWeak(errorRate >= WEAK_THRESHOLD);
+            item.setWeak(errorRate >= weakThreshold);
             list.add(item);
         }
         return list;
@@ -268,6 +305,70 @@ public class DashboardServiceImpl implements DashboardService {
             list.add(item);
         }
         return list;
+    }
+
+    /**
+     * L3 根据知识盲区动态生成学习建议
+     * <p>规则：薄弱知识点生成"建议复习 XX"类型的建议。</p>
+     */
+    private List<AnalyticsOverviewVO.Suggestion> buildDynamicSuggestions(List<AnalyticsOverviewVO.KnowledgeGap> gaps) {
+        List<AnalyticsOverviewVO.Suggestion> list = new ArrayList<>();
+        if (gaps == null || gaps.isEmpty()) {
+            return list;
+        }
+        // 为每个薄弱知识点生成建议
+        for (AnalyticsOverviewVO.KnowledgeGap gap : gaps) {
+            if (gap.isWeak()) {
+                AnalyticsOverviewVO.Suggestion item = new AnalyticsOverviewVO.Suggestion();
+                item.setContent("建议重点复习「" + gap.getKnowledgePoint() + "」，当前掌握度仅 " +
+                        String.format("%.0f%%", gap.getMastery()) + "，可通过问答或重做相关作业来巩固。");
+                item.setType("知识点巩固");
+                list.add(item);
+            }
+        }
+        return list;
+    }
+
+    /**
+     * F-LEARN-03 根据知识盲区生成可视化学习路径步骤
+     * <p>规则：薄弱知识点（weak=true）排在前面作为"待完成"步骤，
+     * 掌握良好的知识点作为"已完成"步骤，第一个薄弱点标记为"进行中"。</p>
+     */
+    private List<AnalyticsOverviewVO.LearningStep> buildLearningPath(List<AnalyticsOverviewVO.KnowledgeGap> gaps) {
+        List<AnalyticsOverviewVO.LearningStep> steps = new ArrayList<>();
+        if (gaps == null || gaps.isEmpty()) {
+            return steps;
+        }
+        // 按掌握度升序排列（最薄弱的排前面）
+        List<AnalyticsOverviewVO.KnowledgeGap> sorted = new ArrayList<>(gaps);
+        sorted.sort((a, b) -> Double.compare(a.getMastery(), b.getMastery()));
+
+        boolean foundCurrent = false;
+        for (AnalyticsOverviewVO.KnowledgeGap gap : sorted) {
+            AnalyticsOverviewVO.LearningStep step = new AnalyticsOverviewVO.LearningStep();
+            step.setTitle(gap.getKnowledgePoint());
+            step.setMastery(gap.getMastery());
+            if (gap.isWeak()) {
+                if (!foundCurrent) {
+                    // 第一个薄弱点标记为"进行中"
+                    step.setStatus(1);
+                    step.setDescription("建议重点复习「" + gap.getKnowledgePoint() + "」，当前掌握度仅 "
+                            + String.format("%.0f", gap.getMastery()) + "%，错误率较高。");
+                    foundCurrent = true;
+                } else {
+                    // 后续薄弱点标记为"待完成"
+                    step.setStatus(0);
+                    step.setDescription("建议在巩固前面内容后，复习「" + gap.getKnowledgePoint() + "」，掌握度 "
+                            + String.format("%.0f", gap.getMastery()) + "%。");
+                }
+            } else {
+                // 掌握良好的知识点标记为"已完成"
+                step.setStatus(2);
+                step.setDescription("已掌握，可作为复习巩固参考。");
+            }
+            steps.add(step);
+        }
+        return steps;
     }
 
     /** 将可能为 BigInteger/BigDecimal/Long/Double 的查询结果安全转为 long */

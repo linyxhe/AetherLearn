@@ -49,7 +49,7 @@ public class AssignmentController {
     /**
      * 新建/编辑作业（仅 教师/管理员）
      */
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('TEACHER')")
     @PostMapping
     public Result<Assignment> save(@Valid @RequestBody AssignmentSaveRequest request) {
         Long operatorId = SecurityUtils.getCurrentUserId();
@@ -60,7 +60,7 @@ public class AssignmentController {
     /**
      * 删除作业（软删除，仅 教师/管理员）
      */
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('TEACHER')")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         assignmentService.deleteAssignment(id);
@@ -80,7 +80,7 @@ public class AssignmentController {
     /**
      * 新增/编辑题目（仅 教师/管理员）
      */
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('TEACHER')")
     @PostMapping("/question")
     public Result<Question> saveQuestion(@Valid @RequestBody QuestionSaveRequest request) {
         return Result.success("保存成功", assignmentService.saveQuestion(request));
@@ -89,10 +89,28 @@ public class AssignmentController {
     /**
      * 删除题目（仅 教师/管理员）
      */
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('TEACHER')")
     @DeleteMapping("/question/{id}")
     public Result<Void> deleteQuestion(@PathVariable Long id) {
         assignmentService.deleteQuestion(id);
         return Result.success();
     }
+
+    /**
+     * AI 自动出题（L1，仅 教师/管理员）
+     *
+     * @param id     作业ID
+     * @param courseId 课程ID（用于检索知识库）
+     * @param count  生成数量（默认 5）
+     * @param type   题型（1-单选 2-多选 3-判断 4-填空 5-简答，默认 1）
+     */
+    @PreAuthorize("hasRole('TEACHER')")
+    @PostMapping("/{id}/auto-generate")
+    public Result<List<Question>> autoGenerate(@PathVariable Long id,
+                                               @RequestParam Long courseId,
+                                               @RequestParam(defaultValue = "5") int count,
+                                               @RequestParam(defaultValue = "1") int type) {
+        return Result.success("生成成功", assignmentService.autoGenerateQuestions(id, courseId, count, type));
+    }
 }
+

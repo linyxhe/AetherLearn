@@ -1,7 +1,10 @@
 package com.aetherlearn.service;
 
 import com.aetherlearn.dto.CourseSaveRequest;
+import com.aetherlearn.dto.CourseChapterSaveRequest;
 import com.aetherlearn.entity.Course;
+import com.aetherlearn.entity.CourseChapter;
+import com.aetherlearn.entity.SysUser;
 
 import java.util.List;
 
@@ -42,4 +45,34 @@ public interface CourseService {
      * 学生凭邀请码加入课程（写入 course_student）
      */
     void joinByInviteCode(Long studentId, String inviteCode);
+
+    /**
+     * 查询某课程下所有学生（F-COURSE-03 学生名单）
+     */
+    List<SysUser> listStudents(Long courseId);
+
+    /**
+     * 教师移除课程中的某学生（F-COURSE-03 学生移除）
+     */
+    void removeStudent(Long courseId, Long studentId);
+
+    /**
+     * 查询课程在线学习章节；学生仅查看已发布章节，并带完成状态。
+     */
+    List<CourseChapter> listChapters(Long courseId, Long studentId, Integer role);
+
+    /**
+     * 教师新增或编辑课程在线学习章节。
+     */
+    CourseChapter saveChapter(CourseChapterSaveRequest request);
+
+    /**
+     * 教师删除课程在线学习章节。
+     */
+    void deleteChapter(Long chapterId);
+
+    /**
+     * 学生完成章节学习，并写入学习行为记录。
+     */
+    void completeChapter(Long chapterId, Long studentId);
 }

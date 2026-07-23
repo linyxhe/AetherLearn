@@ -2,8 +2,10 @@ package com.aetherlearn.controller;
 
 import com.aetherlearn.common.BusinessException;
 import com.aetherlearn.common.Result;
+import com.aetherlearn.kb.DocumentParser;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -11,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -30,6 +33,12 @@ public class FileController {
     /** 上传根目录（来自 application.yml 的 file.upload-dir） */
     @Value("${file.upload-dir}")
     private String uploadDir;
+
+    private final DocumentParser documentParser;
+
+    public FileController(DocumentParser documentParser) {
+        this.documentParser = documentParser;
+    }
 
     /** 允许的业务分桶 */
     private static final String[] BIZ_TYPES = {"avatar", "course", "knowledge", "answer", "export"};
@@ -82,6 +91,37 @@ public class FileController {
             return Result.success("上传成功", data);
         } catch (IOException e) {
             throw new BusinessException(500, "文件保存失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 解析已上传的课程章节资料为纯文本，供教师二次编辑章节内容。
+     */
+    @GetMapping("/parse")
+    public Result<Map<String, String>> parseUploaded(@RequestParam("url") String url) {
+        if (url == null || !url.startsWith("/uploads/")) {
+            throw new BusinessException(400, "非法文件路径");
+        }
+        try {
+            Path root = Paths.get(uploadDir).toAbsolutePath().normalize();
+            String relative = url.replaceFirst("^/uploads/", "");
+            Path target = root.resolve(relative).normalize();
+            if (!target.startsWith(root) || !Files.exists(target)) {
+                throw new BusinessException(404, "文件不存在");
+            }
+            String fileName = target.getFileName().toString();
+            String ext = fileName.contains(".") ? fileName.substring(fileName.lastIndexOf(".") + 1) : "";
+            try (InputStream in = Files.newInputStream(target)) {
+                String text = documentParser.parse(in, ext);
+                Map<String, String> data = new HashMap<>();
+                data.put("text", text == null ? "" : text.trim());
+                data.put("fileName", fileName);
+                return Result.success("解析成功", data);
+            }
+        } catch (IOException e) {
+            throw new BusinessException(500, "文件解析失败：" + e.getMessage());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(400, e.getMessage());
         }
     }
 }

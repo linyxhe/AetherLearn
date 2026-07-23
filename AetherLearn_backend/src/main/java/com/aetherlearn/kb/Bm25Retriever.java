@@ -17,7 +17,8 @@ import java.util.regex.Pattern;
 /**
  * BM25 检索器（F-KB / RAG 本地检索）
  * <p>按 {@code course_id} 隔离，加载课程全部切片后在内存中计算 BM25 相关性得分，返回 Top-K 切片。
- * 中文采用“单字 + 二元”混合切分，英文/数字按词切分，适配中英混合的课程资料。</p>
+ * 中文采用"单字 + 二元"混合切分，英文/数字按词切分，适配中英混合的课程资料。
+ * L9 优化：当切片数量超过阈值时，先使用 MySQL 全文索引做初步筛选，再在内存中 BM25 精排。</p>
  */
 @Slf4j
 @Component
@@ -27,6 +28,13 @@ public class Bm25Retriever {
     private static final double K1 = 1.5;
     /** BM25 参数：文档长度归一化 */
     private static final double B = 0.75;
+    /** BM25 最低分数阈值：低于此分数的切片视为不相关，丢弃不传给 LLM */
+    private static final double MIN_SCORE = 2.0;
+
+    /** L9 全文索引预筛选阈值：切片数超过此值时启用全文索引 */
+    private static final int FULLTEXT_THRESHOLD = 200;
+    /** 全文索引预筛选取回数量上限 */
+    private static final int FULLTEXT_LIMIT = 100;
 
     /** 英文/数字词 */
     private static final Pattern EN_PATTERN = Pattern.compile("[a-z0-9]+");
@@ -48,7 +56,25 @@ public class Bm25Retriever {
      * @return 按相关性降序排列的切片（最多 topK 条，仅返回得分>0 的）
      */
     public List<KnowledgeChunk> retrieve(Long courseId, String query, int topK) {
-        List<KnowledgeChunk> chunks = chunkMapper.selectByCourseId(courseId);
+        // L9 优化：先尝试用全文索引预筛选
+        List<KnowledgeChunk> chunks;
+        try {
+            List<KnowledgeChunk> fullTextResults = chunkMapper.selectByFullText(courseId, query, FULLTEXT_LIMIT);
+            if (!fullTextResults.isEmpty()) {
+                // 全文索引有结果，使用这些结果做 BM25 精排
+                chunks = fullTextResults;
+                log.debug("[BM25] L9 全文索引预筛选命中 {} 条", chunks.size());
+            } else {
+                // 全文索引无结果，回退到加载全部切片
+                chunks = chunkMapper.selectByCourseId(courseId);
+                log.debug("[BM25] 全文索引无结果，加载全部 {} 条切片", chunks.size());
+            }
+        } catch (Exception e) {
+            // 全文索引查询失败（如 SQL 语法问题），回退到加载全部切片
+            log.warn("[BM25] 全文索引查询失败，回退到全量加载: {}", e.getMessage());
+            chunks = chunkMapper.selectByCourseId(courseId);
+        }
+
         if (chunks.isEmpty()) {
             return new ArrayList<>();
         }
@@ -98,8 +124,9 @@ public class Bm25Retriever {
             }
         }
 
-        // 5) 降序排序并取 Top-K
+        // 5) 降序排序，过滤低分切片（不相关），取 Top-K
         return scores.entrySet().stream()
+                .filter(e -> e.getValue() >= MIN_SCORE)  // 过滤不相关切片
                 .sorted(Map.Entry.<KnowledgeChunk, Double>comparingByValue().reversed())
                 .limit(topK)
                 .map(Map.Entry::getKey)
@@ -107,7 +134,7 @@ public class Bm25Retriever {
     }
 
     /**
-     * 分词：英文/数字按词；中文按“单字 + 二元”
+     * 分词：英文/数字按词；中文按"单字 + 二元"
      */
     private List<String> tokenize(String text) {
         List<String> tokens = new ArrayList<>();

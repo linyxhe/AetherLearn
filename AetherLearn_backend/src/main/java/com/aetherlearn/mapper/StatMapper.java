@@ -213,8 +213,10 @@ public interface StatMapper {
     /**
      * 学生个性化学习建议（F-LEARN-04）：读 learning_suggestion 表。
      * 返回 Map 键：content、type。
+     * L4 支持动态 LIMIT。
      */
     @Select("SELECT content, type FROM learning_suggestion " +
-            "WHERE student_id = #{studentId} ORDER BY create_time DESC LIMIT 10")
-    List<Map<String, Object>> selectStudentSuggestions(@Param("studentId") Long studentId);
+            "WHERE student_id = #{studentId} ORDER BY create_time DESC LIMIT #{limit}")
+    List<Map<String, Object>> selectStudentSuggestions(@Param("studentId") Long studentId,
+                                                       @Param("limit") int limit);
 }

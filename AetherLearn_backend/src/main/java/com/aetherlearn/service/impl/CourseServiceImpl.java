@@ -2,11 +2,17 @@ package com.aetherlearn.service.impl;
 
 import com.aetherlearn.common.BusinessException;
 import com.aetherlearn.common.RoleConstant;
+import com.aetherlearn.dto.CourseChapterSaveRequest;
 import com.aetherlearn.dto.CourseSaveRequest;
 import com.aetherlearn.entity.Course;
+import com.aetherlearn.entity.CourseChapter;
 import com.aetherlearn.entity.CourseStudent;
+import com.aetherlearn.entity.LearningRecord;
+import com.aetherlearn.entity.SysUser;
+import com.aetherlearn.mapper.CourseChapterMapper;
 import com.aetherlearn.mapper.CourseMapper;
 import com.aetherlearn.mapper.CourseStudentMapper;
+import com.aetherlearn.mapper.LearningRecordMapper;
 import com.aetherlearn.service.CourseService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Service;
@@ -25,10 +31,17 @@ public class CourseServiceImpl implements CourseService {
 
     private final CourseMapper courseMapper;
     private final CourseStudentMapper courseStudentMapper;
+    private final CourseChapterMapper courseChapterMapper;
+    private final LearningRecordMapper learningRecordMapper;
 
-    public CourseServiceImpl(CourseMapper courseMapper, CourseStudentMapper courseStudentMapper) {
+    public CourseServiceImpl(CourseMapper courseMapper,
+                             CourseStudentMapper courseStudentMapper,
+                             CourseChapterMapper courseChapterMapper,
+                             LearningRecordMapper learningRecordMapper) {
         this.courseMapper = courseMapper;
         this.courseStudentMapper = courseStudentMapper;
+        this.courseChapterMapper = courseChapterMapper;
+        this.learningRecordMapper = learningRecordMapper;
     }
 
     @Override
@@ -98,8 +111,21 @@ public class CourseServiceImpl implements CourseService {
         if (course == null) {
             throw new BusinessException(404, "课程不存在");
         }
-        // 生成 6 位随机邀请码
-        String code = UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+        // 生成 6 位随机邀请码，若碰撞则重新生成（最多重试 5 次）
+        String code = null;
+        for (int i = 0; i < 5; i++) {
+            String candidate = UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+            LambdaQueryWrapper<Course> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(Course::getInviteCode, candidate);
+            Long count = courseMapper.selectCount(wrapper);
+            if (count == 0) {
+                code = candidate;
+                break;
+            }
+        }
+        if (code == null) {
+            throw new BusinessException(500, "邀请码生成失败，请重试");
+        }
         course.setInviteCode(code);
         courseMapper.updateById(course);
         return code;
@@ -127,5 +153,112 @@ public class CourseServiceImpl implements CourseService {
         cs.setStudentId(studentId);
         cs.setCreateTime(LocalDateTime.now());
         courseStudentMapper.insert(cs);
+    }
+
+    @Override
+    public List<SysUser> listStudents(Long courseId) {
+        // 校验课程是否存在
+        Course course = courseMapper.selectById(courseId);
+        if (course == null) {
+            throw new BusinessException(404, "课程不存在");
+        }
+        return courseStudentMapper.selectStudentsByCourseId(courseId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void removeStudent(Long courseId, Long studentId) {
+        // 校验课程是否存在
+        Course course = courseMapper.selectById(courseId);
+        if (course == null) {
+            throw new BusinessException(404, "课程不存在");
+        }
+        // 校验学生是否在该课程中
+        int existed = courseStudentMapper.countByCourseAndStudent(courseId, studentId);
+        if (existed == 0) {
+            throw new BusinessException(400, "该学生未加入此课程");
+        }
+        courseStudentMapper.deleteByCourseAndStudent(courseId, studentId);
+    }
+
+    @Override
+    public List<CourseChapter> listChapters(Long courseId, Long studentId, Integer role) {
+        Course course = courseMapper.selectById(courseId);
+        if (course == null) {
+            throw new BusinessException(404, "课程不存在");
+        }
+        LambdaQueryWrapper<CourseChapter> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(CourseChapter::getCourseId, courseId);
+        if (role != null && role == RoleConstant.STUDENT) {
+            wrapper.eq(CourseChapter::getStatus, 1);
+        }
+        wrapper.orderByAsc(CourseChapter::getSortNo).orderByAsc(CourseChapter::getId);
+        List<CourseChapter> chapters = courseChapterMapper.selectList(wrapper);
+        if (role != null && role == RoleConstant.STUDENT && studentId != null) {
+            chapters.forEach(chapter ->
+                    chapter.setCompleted(learningRecordMapper.countChapterRecord(studentId, chapter.getId()) > 0));
+        }
+        return chapters;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public CourseChapter saveChapter(CourseChapterSaveRequest request) {
+        Course course = courseMapper.selectById(request.getCourseId());
+        if (course == null) {
+            throw new BusinessException(404, "课程不存在");
+        }
+        CourseChapter chapter = request.getId() == null ? new CourseChapter() : courseChapterMapper.selectById(request.getId());
+        if (chapter == null) {
+            throw new BusinessException(404, "章节不存在");
+        }
+        chapter.setCourseId(request.getCourseId());
+        chapter.setTitle(request.getTitle());
+        chapter.setContent(request.getContent());
+        chapter.setResourceType(request.getResourceType() == null ? "TEXT" : request.getResourceType());
+        chapter.setResourceUrl(request.getResourceUrl());
+        chapter.setDurationMinutes(request.getDurationMinutes() == null ? 15 : request.getDurationMinutes());
+        chapter.setSortNo(request.getSortNo() == null ? 1 : request.getSortNo());
+        chapter.setStatus(request.getStatus() == null ? 1 : request.getStatus());
+        chapter.setUpdateTime(LocalDateTime.now());
+        if (chapter.getId() == null) {
+            chapter.setCreateTime(LocalDateTime.now());
+            courseChapterMapper.insert(chapter);
+        } else {
+            courseChapterMapper.updateById(chapter);
+        }
+        return chapter;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteChapter(Long chapterId) {
+        int rows = courseChapterMapper.deleteById(chapterId);
+        if (rows == 0) {
+            throw new BusinessException(404, "章节不存在");
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void completeChapter(Long chapterId, Long studentId) {
+        CourseChapter chapter = courseChapterMapper.selectById(chapterId);
+        if (chapter == null || chapter.getStatus() == null || chapter.getStatus() != 1) {
+            throw new BusinessException(404, "章节不存在或未发布");
+        }
+        if (courseStudentMapper.countByCourseAndStudent(chapter.getCourseId(), studentId) == 0) {
+            throw new BusinessException(403, "请先加入课程再学习");
+        }
+        if (learningRecordMapper.countChapterRecord(studentId, chapterId) > 0) {
+            return;
+        }
+        LearningRecord record = new LearningRecord();
+        record.setStudentId(studentId);
+        record.setCourseId(chapter.getCourseId());
+        record.setActionType("章节学习");
+        record.setTargetId(chapterId);
+        record.setDuration((chapter.getDurationMinutes() == null ? 15 : chapter.getDurationMinutes()) * 60);
+        record.setCreateTime(LocalDateTime.now());
+        learningRecordMapper.insert(record);
     }
 }

@@ -52,7 +52,7 @@ public class AuthServiceImpl implements AuthService {
         profile.setUsername(user.getUsername());
         profile.setRealName(user.getRealName());
         profile.setRole(role);
-        profile.setRoleName(RoleConstant.toRoleName(role));
+        profile.setRoleName(RoleConstant.toRoleNameCn(role));
         profile.setAvatar(user.getAvatar());
         profile.setEmail(user.getEmail());
         profile.setPhone(user.getPhone());

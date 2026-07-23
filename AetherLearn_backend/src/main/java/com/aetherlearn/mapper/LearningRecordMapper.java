@@ -23,4 +23,11 @@ public interface LearningRecordMapper extends BaseMapper<LearningRecord> {
             "ORDER BY id DESC LIMIT 1")
     LearningRecord selectHomeworkRecord(@Param("studentId") Long studentId,
                                         @Param("assignmentId") Long assignmentId);
+
+    /**
+     * 查询学生是否已经完成指定在线学习章节。
+     */
+    @Select("SELECT COUNT(1) FROM learning_record " +
+            "WHERE student_id = #{studentId} AND action_type = '章节学习' AND target_id = #{chapterId}")
+    int countChapterRecord(@Param("studentId") Long studentId, @Param("chapterId") Long chapterId);
 }

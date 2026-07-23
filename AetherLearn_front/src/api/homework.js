@@ -51,3 +51,10 @@ export function getSubmissions(assignmentId) {
 export function reviewAnswer(payload) {
   return request.post('/answer/review', payload)
 }
+
+// AI 自动出题（L1，教师）
+export function autoGenerateQuestions(assignmentId, courseId, count = 5, type = 1) {
+  return request.post(`/assignment/${assignmentId}/auto-generate`, null, {
+    params: { courseId, count, type }
+  })
+}

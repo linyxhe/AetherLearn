@@ -59,7 +59,7 @@ public class AnswerController {
     /**
      * 教师查看某作业提交情况（按学生汇总）
      */
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('TEACHER')")
     @GetMapping("/submissions")
     public Result<List<SubmissionSummaryVO>> submissions(@RequestParam Long assignmentId) {
         return Result.success(assignmentService.getSubmissions(assignmentId));
@@ -68,10 +68,11 @@ public class AnswerController {
     /**
      * 教师复核单题作答（调分/反馈/复核状态）
      */
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('TEACHER')")
     @PostMapping("/review")
     public Result<Void> review(@Valid @RequestBody ReviewRequest request) {
         assignmentService.review(request);
         return Result.success();
     }
 }
+

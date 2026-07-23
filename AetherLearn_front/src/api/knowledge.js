@@ -19,3 +19,8 @@ export function listKnowledge(courseId) {
 export function deleteKnowledge(id) {
   return request.delete(`/knowledge/${id}`)
 }
+
+// 检索知识库切片（M2 知识库检索预览）
+export function searchKnowledge(courseId, query, topK = 10) {
+  return request.get('/knowledge/search', { params: { courseId, query, topK } })
+}

@@ -9,17 +9,29 @@ const routes = [
     component: () => import('../layout/MainLayout.vue'),
     redirect: '/dashboard',
     children: [
-      // 教师/管理员：数据看板
+      // 教师/管理员：看板入口，管理员展示平台视角，教师展示教学视角
       { path: 'dashboard', name: 'Dashboard', component: () => import('../views/Dashboard.vue'), meta: { title: '数据看板', roles: [ROLE.ADMIN, ROLE.TEACHER] } },
+      // 教师：教学业务工作台
+      { path: 'ai-advice', name: 'AiAdvice', component: () => import('../views/AiAdvice.vue'), meta: { title: 'AI 教学建议', roles: [ROLE.TEACHER] } },
+      { path: 'paper-builder', name: 'PaperBuilder', component: () => import('../views/PaperBuilder.vue'), meta: { title: '智能组卷', roles: [ROLE.TEACHER] } },
       // 学生：学习中心
       { path: 'student-dashboard', name: 'StudentDashboard', component: () => import('../views/StudentDashboard.vue'), meta: { title: '学习中心', roles: [ROLE.STUDENT] } },
-      // 课程管理（教师/管理员）
-      { path: 'course', name: 'Course', component: () => import('../views/Course.vue'), meta: { title: '课程管理', roles: [ROLE.ADMIN, ROLE.TEACHER] } },
-      // 以下为后续波次占位（第一波未实现，统一引导至规划页）
-      { path: 'user', name: 'User', component: () => import('../views/ComingSoon.vue'), meta: { title: '用户管理', roles: [ROLE.ADMIN] } },
+      // 教师：课程建设与教学管理
+      { path: 'course', name: 'Course', component: () => import('../views/Course.vue'), meta: { title: '课程管理', roles: [ROLE.TEACHER] } },
+      // 管理员：用户管理（F-AUTH-03）
+      { path: 'user', name: 'User', component: () => import('../views/UserAdmin.vue'), meta: { title: '用户管理', roles: [ROLE.ADMIN] } },
+      // 管理员：系统配置（L7）
+      { path: 'config', name: 'SystemConfig', component: () => import('../views/SystemConfig.vue'), meta: { title: '系统配置', roles: [ROLE.ADMIN] } },
       { path: 'knowledge', name: 'Knowledge', component: () => import('../views/Knowledge.vue'), meta: { title: '课程知识库', roles: [ROLE.TEACHER] } },
       { path: 'homework', name: 'Homework', component: () => import('../views/Homework.vue'), meta: { title: '作业管理', roles: [ROLE.TEACHER] } },
-      { path: 'my-course', name: 'MyCourse', component: () => import('../views/MyHomework.vue'), meta: { title: '我的作业', roles: [ROLE.STUDENT] } },
+      { path: 'notice', name: 'Notice', component: () => import('../views/Notice.vue'), meta: { title: '课程公告', roles: [ROLE.TEACHER, ROLE.STUDENT] } },
+      { path: 'knowledge-graph', name: 'KnowledgeGraph', component: () => import('../views/KnowledgeGraph.vue'), meta: { title: '知识点图谱', roles: [ROLE.TEACHER, ROLE.STUDENT] } },
+      { path: 'my-course', name: 'MyCourse', component: () => import('../views/MyCourse.vue'), meta: { title: '我的课程', roles: [ROLE.STUDENT] } },
+      { path: 'my-homework', name: 'MyHomework', component: () => import('../views/MyHomework.vue'), meta: { title: '我的作业', roles: [ROLE.STUDENT] } },
+      { path: 'wrong-book', name: 'WrongBook', component: () => import('../views/WrongBook.vue'), meta: { title: '错题本', roles: [ROLE.STUDENT] } },
+      { path: 'todo', name: 'Todo', component: () => import('../views/Todo.vue'), meta: { title: '学习计划', roles: [ROLE.STUDENT] } },
+      { path: 'ai-report', name: 'AiReport', component: () => import('../views/AiReport.vue'), meta: { title: 'AI 学习报告', roles: [ROLE.STUDENT] } },
+      { path: 'profile', name: 'Profile', component: () => import('../views/Profile.vue'), meta: { title: '个人中心', roles: [ROLE.ADMIN, ROLE.TEACHER, ROLE.STUDENT] } },
       { path: 'qa', name: 'Qa', component: () => import('../views/Qa.vue'), meta: { title: '智能问答', roles: [ROLE.STUDENT] } }
     ]
   },

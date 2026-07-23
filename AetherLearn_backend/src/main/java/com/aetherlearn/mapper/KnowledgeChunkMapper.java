@@ -3,6 +3,7 @@ package com.aetherlearn.mapper;
 import com.aetherlearn.entity.KnowledgeChunk;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
@@ -22,4 +23,22 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
             "JOIN knowledge_doc d ON c.doc_id = d.id " +
             "WHERE c.course_id = #{courseId} AND d.is_deleted = 0")
     List<KnowledgeChunk> selectByCourseId(Long courseId);
+
+    /**
+     * L9 全文索引检索：使用 MySQL FULLTEXT 索引进行初步筛选
+     * <p>在数据量较大时，先用全文索引缩小范围，再在内存中做 BM25 精排。</p>
+     *
+     * @param courseId 课程ID
+     * @param query    搜索关键词
+     * @param limit    返回数量上限
+     * @return 全文匹配的切片列表（按相关度降序）
+     */
+    @Select("SELECT c.* FROM knowledge_chunk c " +
+            "JOIN knowledge_doc d ON c.doc_id = d.id " +
+            "WHERE c.course_id = #{courseId} AND d.is_deleted = 0 " +
+            "AND MATCH(c.content) AGAINST(#{query} IN NATURAL LANGUAGE MODE) " +
+            "LIMIT #{limit}")
+    List<KnowledgeChunk> selectByFullText(@Param("courseId") Long courseId,
+                                          @Param("query") String query,
+                                          @Param("limit") int limit);
 }

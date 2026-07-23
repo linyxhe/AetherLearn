@@ -24,6 +24,9 @@ public class AnalyticsOverviewVO implements Serializable {
     /** 个性化学习建议（F-LEARN-04） */
     private List<Suggestion> suggestions;
 
+    /** 可视化学习路径（F-LEARN-03） */
+    private List<LearningStep> learningPath;
+
     /** 学情概览卡 */
     @Data
     public static class Overview implements Serializable {
@@ -55,5 +58,18 @@ public class AnalyticsOverviewVO implements Serializable {
     public static class Suggestion implements Serializable {
         private String content;
         private String type;
+    }
+
+    /** 学习路径步骤项（F-LEARN-03） */
+    @Data
+    public static class LearningStep implements Serializable {
+        /** 步骤标题（知识点名称） */
+        private String title;
+        /** 步骤描述（建议行动） */
+        private String description;
+        /** 状态：0-待完成 1-进行中 2-已完成 */
+        private int status;
+        /** 掌握度（百分比） */
+        private double mastery;
     }
 }

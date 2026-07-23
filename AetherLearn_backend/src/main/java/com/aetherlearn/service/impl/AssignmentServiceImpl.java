@@ -17,8 +17,10 @@ import com.aetherlearn.entity.LearningRecord;
 import com.aetherlearn.entity.Question;
 import com.aetherlearn.entity.StudentAnswer;
 import com.aetherlearn.entity.SysUser;
+import com.aetherlearn.entity.KnowledgeChunk;
 import com.aetherlearn.mapper.AssignmentMapper;
 import com.aetherlearn.mapper.CourseMapper;
+import com.aetherlearn.mapper.KnowledgeChunkMapper;
 import com.aetherlearn.mapper.LearningRecordMapper;
 import com.aetherlearn.mapper.QuestionMapper;
 import com.aetherlearn.mapper.StudentAnswerMapper;
@@ -81,6 +83,7 @@ public class AssignmentServiceImpl implements AssignmentService {
     private final LearningRecordMapper learningRecordMapper;
     private final CourseMapper courseMapper;
     private final SysUserMapper sysUserMapper;
+    private final KnowledgeChunkMapper knowledgeChunkMapper;
     private final AiConfig aiConfig;
     private final LlmClient llmClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -88,6 +91,7 @@ public class AssignmentServiceImpl implements AssignmentService {
     public AssignmentServiceImpl(AssignmentMapper assignmentMapper, QuestionMapper questionMapper,
                                  StudentAnswerMapper studentAnswerMapper, LearningRecordMapper learningRecordMapper,
                                  CourseMapper courseMapper, SysUserMapper sysUserMapper,
+                                 KnowledgeChunkMapper knowledgeChunkMapper,
                                  AiConfig aiConfig, LlmClient llmClient) {
         this.assignmentMapper = assignmentMapper;
         this.questionMapper = questionMapper;
@@ -95,6 +99,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         this.learningRecordMapper = learningRecordMapper;
         this.courseMapper = courseMapper;
         this.sysUserMapper = sysUserMapper;
+        this.knowledgeChunkMapper = knowledgeChunkMapper;
         this.aiConfig = aiConfig;
         this.llmClient = llmClient;
     }
@@ -178,6 +183,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         vo.setQuestions(questions.stream().map(q -> {
             AssignmentDetailVO.QuestionVO qv = new AssignmentDetailVO.QuestionVO();
             qv.setId(q.getId());
+            qv.setAssignmentId(q.getAssignmentId());
             qv.setType(q.getType());
             qv.setContent(q.getContent());
             qv.setOptions(parseOptions(q.getOptions()));
@@ -252,6 +258,10 @@ public class AssignmentServiceImpl implements AssignmentService {
         if (assignment == null) {
             throw new BusinessException(404, "作业不存在");
         }
+        // 校验截止时间：过期禁止提交
+        if (assignment.getEndTime() != null && LocalDateTime.now().isAfter(assignment.getEndTime())) {
+            throw new BusinessException(400, "作业已截止，无法提交");
+        }
         List<Question> questions = questionMapper.selectByAssignmentId(assignmentId);
         Map<Long, Question> questionMap = questions.stream()
                 .collect(Collectors.toMap(Question::getId, q -> q, (a, b) -> a));
@@ -285,6 +295,10 @@ public class AssignmentServiceImpl implements AssignmentService {
             sa.setFeedback(g.feedback);
             sa.setGradeType(g.gradeType);
             sa.setReviewStatus(g.reviewStatus);
+            // 作答图片（F-HW-04）
+            if (item.getImageUrl() != null && !item.getImageUrl().isBlank()) {
+                sa.setImageUrl(item.getImageUrl());
+            }
             if (isNew) {
                 studentAnswerMapper.insert(sa);
             } else {
@@ -397,7 +411,7 @@ public class AssignmentServiceImpl implements AssignmentService {
     private boolean isObjectiveCorrect(Question q, String ans) {
         if (ans == null) return false;
         String std = q.getAnswer() == null ? "" : q.getAnswer().trim();
-        String stu = ans.trim();
+        String stu = plainAnswerText(ans).trim();
         if (stu.isEmpty()) return false;
         switch (q.getType()) {
             case Q_SINGLE:
@@ -427,7 +441,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                     + "只输出一个 JSON 对象：{\"score\": 整数(0到满分之间), \"feedback\": \"简短中文反馈\"}，不要输出其它内容。";
             String user = "【题目】" + q.getContent()
                     + "\n【标准答案/要点】" + (q.getAnswer() == null ? "" : q.getAnswer())
-                    + "\n【学生作答】" + ans
+                    + "\n【学生作答】" + plainAnswerText(ans)
                     + "\n【满分】" + full;
             String llm = llmClient.chat(system, user);
             if (llm != null) {
@@ -439,7 +453,7 @@ public class AssignmentServiceImpl implements AssignmentService {
             }
         }
         // 关键词降级方案（无 Key / LLM 失败）
-        KeywordHit kh = keywordHit(q.getAnswer(), ans);
+        KeywordHit kh = keywordHit(q.getAnswer(), plainAnswerText(ans));
         double ratio = kh.total == 0 ? 0.0 : (double) kh.hit / kh.total;
         int score = (int) Math.round(full * ratio);
         String feedback = "AI 批改未开启（无大模型密钥）：命中关键词 " + kh.hit + "/" + kh.total
@@ -517,6 +531,7 @@ public class AssignmentServiceImpl implements AssignmentService {
 
             if (sa != null) {
                 item.setYourAnswer(sa.getAnswer());
+                item.setImageUrl(sa.getImageUrl());
                 item.setScore(sa.getScore());
                 item.setCorrect(sa.getIsCorrect() == null ? null : sa.getIsCorrect() == 1);
                 item.setFeedback(sa.getFeedback());
@@ -590,14 +605,98 @@ public class AssignmentServiceImpl implements AssignmentService {
         }
     }
 
+    /** 将富文本作答转为纯文本，供填空题精确比对与主观题 AI 批改使用。 */
+    private String plainAnswerText(String answer) {
+        if (answer == null) return "";
+        return answer.replaceAll("(?i)<br\\s*/?>", "\n")
+                .replaceAll("(?i)</p>", "\n")
+                .replaceAll("<[^>]+>", "")
+                .replace("&nbsp;", " ")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+                .trim();
+    }
+
     @SuppressWarnings("unchecked")
     private List<String> parseOptions(String json) {
         if (json == null || json.isBlank()) return new ArrayList<>();
         try {
             return objectMapper.readValue(json, List.class);
         } catch (Exception e) {
-            return new ArrayList<>();
+            return normalizeOptionText(json);
         }
+    }
+
+    /**
+     * 兼容 AI 旧格式选项：大模型可能返回 "A.选项1|B.选项2" 或带换行的文本，
+     * 这里统一清洗为前端可渲染的选项内容列表。
+     */
+    private List<String> normalizeOptionText(String raw) {
+        if (raw == null || raw.isBlank()) return new ArrayList<>();
+        String normalized = raw.replace("\r", "\n")
+                .replace("；", "|")
+                .replace(";", "|")
+                .replace("｜", "|");
+        if (!normalized.contains("|")) {
+            normalized = normalized.replaceAll("\\n+", "|");
+        }
+        String[] parts = normalized.split("\\|");
+        List<String> options = new ArrayList<>();
+        for (String part : parts) {
+            String option = part == null ? "" : part.trim();
+            if (option.isBlank()) continue;
+            option = option.replaceFirst("^[A-Ha-h][\\.．、:)：\\s]+", "").trim();
+            option = option.replaceAll("^\"|\"$", "").trim();
+            if (!option.isBlank()) {
+                options.add(option);
+            }
+        }
+        return options;
+    }
+
+    /** 将 AI 生成的选择题选项统一转为 JSON 数组字符串，避免前端无法解析。 */
+    private String generatedOptionsToJson(JsonNode node, int questionType) {
+        if (questionType != Q_SINGLE && questionType != Q_MULTI) {
+            return "[]";
+        }
+        List<String> options = new ArrayList<>();
+        JsonNode optionNode = node.get("options");
+        if (optionNode != null && optionNode.isArray()) {
+            for (JsonNode item : optionNode) {
+                if (item != null && !item.asText("").isBlank()) {
+                    options.add(item.asText().replaceFirst("^[A-Ha-h][\\.．、:)：\\s]+", "").trim());
+                }
+            }
+        } else if (optionNode != null) {
+            options.addAll(normalizeOptionText(optionNode.asText()));
+        }
+        if (options.size() < 2) {
+            throw new BusinessException(500, "AI 返回的选择题缺少选项，请重新生成");
+        }
+        return toJson(options);
+    }
+
+    /** 规范 AI 生成的标准答案：选择题只保留 A/B/C/D 等答案字母。 */
+    private String normalizeGeneratedAnswer(String answer, int questionType) {
+        if (answer == null) return "";
+        String trimmed = answer.trim();
+        if (questionType == Q_SINGLE) {
+            Matcher matcher = Pattern.compile("[A-Ha-h]").matcher(trimmed);
+            return matcher.find() ? matcher.group().toUpperCase() : trimmed;
+        }
+        if (questionType == Q_MULTI) {
+            StringBuilder sb = new StringBuilder();
+            Matcher matcher = Pattern.compile("[A-Ha-h]").matcher(trimmed);
+            while (matcher.find()) {
+                String letter = matcher.group().toUpperCase();
+                if (sb.indexOf(letter) < 0) {
+                    sb.append(letter);
+                }
+            }
+            return !sb.isEmpty() ? sb.toString() : trimmed;
+        }
+        return trimmed;
     }
 
     /** 单题批改结果临时载体 */
@@ -651,5 +750,113 @@ public class AssignmentServiceImpl implements AssignmentService {
             }
         }
         return set;
+    }
+
+    // ============ L1 自动出题 ============
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public List<Question> autoGenerateQuestions(Long assignmentId, Long courseId, int count, int questionType) {
+        // 校验作业是否存在
+        Assignment assignment = assignmentMapper.selectById(assignmentId);
+        if (assignment == null) {
+            throw new BusinessException(404, "作业不存在");
+        }
+        // 校验 LLM 是否可用
+        if (!aiConfig.isAvailable()) {
+            throw new BusinessException(400, "AI 模型未配置，无法自动出题");
+        }
+        // 从知识库加载切片作为出题素材
+        List<KnowledgeChunk> chunks = knowledgeChunkMapper.selectByCourseId(courseId);
+        if (chunks.isEmpty()) {
+            throw new BusinessException(400, "该课程知识库为空，请先上传课程资料");
+        }
+        // 拼接知识库内容（最多取前 3000 字）
+        StringBuilder context = new StringBuilder();
+        for (KnowledgeChunk c : chunks) {
+            if (context.length() + c.getContent().length() > 3000) break;
+            context.append(c.getContent()).append("\n\n");
+        }
+
+        // 构建 prompt
+        String typeName = switch (questionType) {
+            case Q_SINGLE -> "单选题（4个选项A/B/C/D，只有一个正确答案）";
+            case Q_MULTI -> "多选题（4个选项A/B/C/D，有多个正确答案）";
+            case Q_JUDGE -> "判断题（答案为'对'或'错'）";
+            case Q_FILL -> "填空题（用___表示空格，给出标准答案）";
+            case Q_ESSAY -> "简答题（给出参考答案要点）";
+            default -> throw new BusinessException(400, "不支持的题型：" + questionType);
+        };
+
+        String system = "你是 AetherLearn 智能出题助手。请依据下方【知识库内容】生成指定数量和类型的题目。"
+                + "每道题输出一个 JSON 对象，所有题目用 JSON 数组返回。格式：\n"
+                + "[{\"content\":\"题目内容\",\"options\":[\"选项1\",\"选项2\",\"选项3\",\"选项4\"],\"answer\":\"A\",\"analysis\":\"解析\",\"knowledgePoint\":\"知识点\",\"score\":5}]\n"
+                + "硬性要求：单选题和多选题必须给出 4 个 options，options 必须是 JSON 数组，不要带 A/B/C/D 前缀；"
+                + "单选答案只写一个字母如 A，多选答案写多个字母如 AC；判断/填空/简答 options 使用空数组；"
+                + "填空题题干用 ___ 表示空格；简答或分析类题目给出参考答案要点；score 默认5分；只输出 JSON 数组，不要其它内容。";
+
+        String user = "【知识库内容】\n" + context
+                + "\n\n【出题要求】\n题型：" + typeName
+                + "\n数量：" + count + "道";
+
+        String llmResponse = llmClient.chat(system, user);
+        if (llmResponse == null || llmResponse.isBlank()) {
+            throw new BusinessException(500, "AI 出题失败，请稍后重试");
+        }
+
+        // 解析 LLM 返回的 JSON
+        List<Question> questions = new ArrayList<>();
+        try {
+            // 提取 JSON 数组（可能被 markdown 代码块包裹）
+            String json = llmResponse.trim();
+            if (json.contains("```")) {
+                json = json.replaceAll("```json\\s*", "").replaceAll("```\\s*", "").trim();
+            }
+            // 确保是数组格式
+            if (!json.startsWith("[")) {
+                // 尝试提取第一个 [ 到最后一个 ]
+                int start = json.indexOf('[');
+                int end = json.lastIndexOf(']');
+                if (start >= 0 && end > start) {
+                    json = json.substring(start, end + 1);
+                }
+            }
+
+            JsonNode array = objectMapper.readTree(json);
+            if (!array.isArray()) {
+                throw new BusinessException(500, "AI 返回格式错误");
+            }
+
+            // 获取当前作业已有题目的最大序号
+            int maxSeq = 0;
+            List<Question> existing = questionMapper.selectList(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Question>()
+                            .eq(Question::getAssignmentId, assignmentId));
+            for (Question q : existing) {
+                if (q.getSeq() != null && q.getSeq() > maxSeq) maxSeq = q.getSeq();
+            }
+
+            for (JsonNode node : array) {
+                Question q = new Question();
+                q.setAssignmentId(assignmentId);
+                q.setType(questionType);
+                q.setContent(node.has("content") ? node.get("content").asText() : "");
+                q.setOptions(generatedOptionsToJson(node, questionType));
+                q.setAnswer(normalizeGeneratedAnswer(node.has("answer") ? node.get("answer").asText() : "", questionType));
+                q.setAnalysis(node.has("analysis") ? node.get("analysis").asText() : "");
+                q.setKnowledgePoint(node.has("knowledgePoint") ? node.get("knowledgePoint").asText() : "");
+                q.setScore(node.has("score") ? node.get("score").asInt(5) : 5);
+                q.setSeq(++maxSeq);
+                questionMapper.insert(q);
+                questions.add(q);
+            }
+            log.info("[作业] AI 自动出题完成：assignmentId={}, 生成{}道{}", assignmentId, questions.size(), typeName);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("[作业] AI 出题解析失败", e);
+            throw new BusinessException(500, "AI 返回内容解析失败：" + e.getMessage());
+        }
+        return questions;
     }
 }

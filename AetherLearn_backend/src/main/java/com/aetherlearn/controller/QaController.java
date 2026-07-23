@@ -4,7 +4,7 @@ import com.aetherlearn.common.Result;
 import com.aetherlearn.common.SecurityUtils;
 import com.aetherlearn.dto.QaAnswer;
 import com.aetherlearn.dto.QaAskRequest;
-import com.aetherlearn.entity.QaRecord;
+import com.aetherlearn.dto.QaHistoryVO;
 import com.aetherlearn.service.QaService;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
@@ -52,10 +52,10 @@ public class QaController {
     }
 
     /**
-     * 当前用户的问答历史
+     * 当前用户的问答历史（M4 含来源详情）
      */
     @GetMapping("/history")
-    public Result<List<QaRecord>> history(@RequestParam(required = false) Long courseId) {
+    public Result<List<QaHistoryVO>> history(@RequestParam(required = false) Long courseId) {
         Long userId = SecurityUtils.getCurrentUserId();
         return Result.success(qaService.history(userId, courseId));
     }

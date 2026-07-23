@@ -1,59 +1,295 @@
 /* =============================================================
- * AetherLearn 全局样式（前端美化规范）
- * 视觉基调：科技蓝紫主色 #5b6ef5 / #7c4dff，浅灰背景，卡片化、圆角、柔和阴影。
+ * AetherLearn 全局样式 v3 — "温润校园"
+ * 视觉基调：蓝绿柔和 #42B5BB / #87D8C9，低饱和、大圆角、柔和阴影。
+ * 设计原则：轻量化温润教育视觉，低视觉疲劳，卡片化，扁平 2D。
  * ============================================================= */
 
+/* ---------- Design Tokens ---------- */
 :root {
-  --brand-1: #5b6ef5;   /* 科技蓝紫-主 */
-  --brand-2: #7c4dff;   /* 科技蓝紫-辅 */
-  --bg: #f5f6fa;        /* 浅灰背景 */
-  --card-bg: #ffffff;
-  --text-1: #1f2330;    /* 主文字 */
-  --text-2: #6b7280;    /* 次文字 */
-  --radius: 14px;       /* 圆角 */
-  --shadow: 0 8px 24px rgba(91, 110, 245, 0.10); /* 柔和阴影 */
+  /* Brand — 蓝绿主色系 */
+  --brand-1: #42B5BB;
+  --brand-2: #87D8C9;
+  --brand-deep: #38a4a9;
+  --brand-soft: #a8e6cf;
+  --brand-glow: rgba(66, 181, 187, 0.12);
+  --brand-gradient: linear-gradient(135deg, var(--brand-1), var(--brand-2));
+
+  /* Surfaces */
+  --surface: #f2fbfa;
+  --card: #ffffff;
+  --border: #d9edeb;
+  --border-light: #e6f7f6;
+
+  /* Text — 三级文字层级 */
+  --text-1: #333333;
+  --text-2: #666666;
+  --text-3: #999999;
+
+  /* Semantic — 低饱和功能色 */
+  --success: #67C23A;
+  --warning: #FFB86C;
+  --danger: #F56C6C;
+  --info: #909399;
+
+  /* Layout */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 16px;
+  --shadow: 0 2px 10px rgba(66, 181, 187, 0.08);
+  --shadow-lg: 0 4px 16px rgba(66, 181, 187, 0.12);
+  --shadow-glow: 0 0 0 3px var(--brand-glow);
+
+  /* Typography */
+  --font-display: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Cascadia Code", "Fira Code", "Consolas", monospace;
+
+  /* Transitions */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration: 0.2s;
 }
 
-* {
-  box-sizing: border-box;
-}
+/* ---------- Reset & Base ---------- */
+* { box-sizing: border-box; }
 
-html,
-body,
-#app {
+html, body, #app {
   height: 100%;
   margin: 0;
   padding: 0;
 }
 
 body {
-  font-family: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: var(--bg);
+  font-family: var(--font-body);
+  background: #ffffff;
   color: var(--text-1);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
-/* 通用卡片 */
+/* ---------- Typography ---------- */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: var(--text-1);
+  line-height: 1.3;
+}
+
+/* ---------- Common Card ---------- */
 .aeth-card {
-  background: var(--card-bg);
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 20px 24px;
+  transition: box-shadow var(--duration) var(--ease);
+}
+.aeth-card:hover {
+  box-shadow: var(--shadow-lg);
 }
 
-/* 渐变按钮文字色 */
+/* ---------- Gradient Text ---------- */
 .text-gradient {
-  background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
+  background: var(--brand-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
-/* 滚动条美化 */
+/* ---------- Scrollbar ---------- */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(91, 110, 245, 0.35);
-  border-radius: 8px;
+  background: rgba(66, 181, 187, 0.2);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(66, 181, 187, 0.35);
+}
+
+/* ---------- Selection ---------- */
+::selection {
+  background: rgba(66, 181, 187, 0.15);
+  color: var(--text-1);
+}
+
+/* =============================================================
+ * Element Plus 全局覆写
+ * ============================================================= */
+
+/* --- Table --- */
+.el-table {
+  --el-table-border-color: var(--border);
+  --el-table-header-bg-color: #f2fbfa;
+  --el-table-header-text-color: var(--text-2);
+  --el-table-row-hover-bg-color: rgba(66, 181, 187, 0.04);
+  font-size: 13.5px;
+}
+.el-table th.el-table__cell {
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+}
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background: #f2fbfa;
+}
+
+/* --- Button --- */
+.el-button--primary {
+  --el-button-bg-color: var(--brand-1);
+  --el-button-border-color: var(--brand-1);
+  --el-button-hover-bg-color: var(--brand-deep);
+  --el-button-hover-border-color: var(--brand-deep);
+  --el-button-active-bg-color: #2e9297;
+  --el-button-active-border-color: #2e9297;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+}
+.el-button {
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  transition: all var(--duration) var(--ease);
+}
+
+/* --- Input --- */
+.el-input__wrapper,
+.el-textarea__inner {
+  border-radius: var(--radius-sm) !important;
+  transition: box-shadow var(--duration) var(--ease) !important;
+}
+.el-input__wrapper:focus-within,
+.el-textarea__inner:focus {
+  box-shadow: var(--shadow-glow) !important;
+}
+
+/* --- Tag --- */
+.el-tag {
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+/* --- Dialog --- */
+.el-dialog {
+  border-radius: var(--radius-lg) !important;
+  overflow: hidden;
+}
+.el-dialog__header {
+  padding: 20px 24px 16px;
+  background: #e6f7f6;
+  border-bottom: 1px solid var(--border);
+  margin-right: 0;
+}
+.el-dialog__title {
+  font-weight: 500;
+  font-size: 16px;
+}
+.el-dialog__body {
+  padding: 20px 24px;
+}
+.el-dialog__footer {
+  padding: 12px 24px 20px;
+  border-top: 1px solid var(--border);
+}
+
+/* --- Card (el-card) --- */
+.el-card {
+  border-radius: var(--radius) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: var(--shadow) !important;
+  transition: box-shadow var(--duration) var(--ease) !important;
+}
+.el-card:hover {
+  box-shadow: var(--shadow-lg) !important;
+}
+
+/* --- Empty --- */
+.el-empty__description p {
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* --- Dropdown --- */
+.el-dropdown-menu {
+  border-radius: var(--radius-sm) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: var(--shadow-lg) !important;
+  padding: 4px !important;
+}
+.el-dropdown-menu__item {
+  border-radius: 6px !important;
+  padding: 8px 14px !important;
+}
+
+/* --- Alert --- */
+.el-alert {
+  border-radius: var(--radius-sm) !important;
+}
+
+/* --- Upload drag --- */
+.el-upload-dragger {
+  border-radius: var(--radius) !important;
+  border: 2px dashed #87D8C9 !important;
+  transition: border-color var(--duration) var(--ease), background var(--duration) var(--ease) !important;
+}
+.el-upload-dragger:hover {
+  border-color: var(--brand-1) !important;
+  background: rgba(66, 181, 187, 0.03) !important;
+}
+
+/* --- Menu (sidebar) --- */
+.el-menu-item {
+  border-radius: var(--radius-sm) !important;
+  margin: 2px 8px !important;
+  transition: all var(--duration) var(--ease) !important;
+}
+.el-menu-item:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+.el-menu-item.is-active {
+  background: rgba(255, 255, 255, 0.18) !important;
+  font-weight: 600;
+}
+
+/* --- Collapse (QA sources) --- */
+.el-collapse-item__header {
+  font-weight: 600 !important;
+  color: var(--text-1) !important;
+  border-bottom-color: var(--border) !important;
+}
+
+/* --- Message Box --- */
+.el-message-box {
+  border-radius: var(--radius-lg) !important;
+}
+
+/* =============================================================
+ * Utility Classes
+ * ============================================================= */
+
+/* Page title */
+.page-title {
+  font-size: 20px;
+  font-weight: 500;
+  margin: 0;
+  color: var(--text-1);
+}
+
+/* Muted text */
+.muted {
+  color: var(--text-2);
+}
+
+/* Fade transition */
+.fade-enter-active, .fade-leave-active {
+  transition: opacity var(--duration) var(--ease);
+}
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
 }

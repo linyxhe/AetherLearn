@@ -24,6 +24,7 @@ public class AssignmentDetailVO implements Serializable {
     @Data
     public static class QuestionVO implements Serializable {
         private Long id;
+        private Long assignmentId;
         private Integer type;
         private String content;
         private List<String> options;

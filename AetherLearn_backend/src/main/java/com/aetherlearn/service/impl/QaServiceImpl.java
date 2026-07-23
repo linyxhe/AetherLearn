@@ -4,6 +4,7 @@ import com.aetherlearn.ai.AiConfig;
 import com.aetherlearn.ai.LlmClient;
 import com.aetherlearn.dto.QaAnswer;
 import com.aetherlearn.dto.QaAskRequest;
+import com.aetherlearn.dto.QaHistoryVO;
 import com.aetherlearn.dto.QaSource;
 import com.aetherlearn.entity.KnowledgeChunk;
 import com.aetherlearn.entity.KnowledgeDoc;
@@ -73,8 +74,10 @@ public class QaServiceImpl implements QaService {
         Long courseId = request.getCourseId();
         String question = request.getQuestion().trim();
 
-        // 1) BM25 检索相关切片
+        // 1) BM25 检索相关切片（L8 记录检索耗时）
+        long t1 = System.currentTimeMillis();
         List<KnowledgeChunk> chunks = retriever.retrieve(courseId, question, topK);
+        long retrievalMs = System.currentTimeMillis() - t1;
 
         // 2) 拼接上下文（滑动窗口截断至阈值的 tokenRatio ≈ 2000 token）
         int budget = (int) (tokenThreshold * tokenRatio);
@@ -100,43 +103,51 @@ public class QaServiceImpl implements QaService {
             sourceIds.setLength(sourceIds.length() - 1);
         }
 
-        // 3) 生成回答
+        // 2.5) 获取最近对话历史（多轮追问，M3）
+        String historyContext = buildHistoryContext(userId, courseId);
+
+        // 3) 生成回答（L8 记录 LLM 耗时）
         String answer;
         boolean useLlm;
+        long llmMs = 0;
         if (aiConfig.isAvailable()) {
             // 有大模型 → 无论是否检索到切片都调用 LLM
             String system;
             String user;
             if (chunks.isEmpty()) {
-                // 未检索到资料，让 LLM 自由回答（如问候、通用问题）
                 system = "你是 AetherLearn 智能助教，请友好、简洁地回答学生的问题。";
-                user = "【学生问题】\n" + question;
+                user = historyContext + "【学生问题】\n" + question;
             } else {
-                // 有知识库上下文，基于资料回答
-                system = "你是 AetherLearn 智能助教。请仅依据下方【知识库内容】回答学生的问题，"
-                        + "语言简洁准确、通俗易懂；若知识库中未涵盖该问题，请明确说明'资料中未提及'，不要编造。";
-                user = "【知识库内容】\n" + ctx + "\n\n【学生问题】\n" + question;
+                system = "你是 AetherLearn 智能助教。请先直接回答学生的问题，然后如果下方知识库内容与问题相关，可以引用补充说明。"
+                        + "重要规则：你必须用你自己的知识回答问题，绝对不能说'资料中未提及'、'不在知识库中'等话。"
+                        + "知识库只是额外参考，不是你的知识边界。";
+                user = historyContext + "【学生问题】\n" + question + "\n\n【知识库内容（仅供参考，不是你的全部知识）】\n" + ctx;
             }
+            long t2 = System.currentTimeMillis();
             String llmAns = llmClient.chat(system, user);
+            llmMs = System.currentTimeMillis() - t2;
             if (llmAns != null && !llmAns.isBlank()) {
                 answer = llmAns.trim();
                 useLlm = true;
+                log.info("[QA] LLM 调用成功，耗时 {} ms，回答长度 {}", llmMs, answer.length());
             } else {
-                // 大模型调用失败 → 降级
+                log.warn("[QA] LLM 返回空/失败，降级为纯检索模式，耗时 {} ms，chunks={}", llmMs, chunks.size());
                 answer = chunks.isEmpty()
                         ? "未在课程知识库中找到与该问题相关的资料。建议：① 由教师上传相关课程资料；② 换一种更具体的方式提问。"
                         : buildRetrievalOnlyAnswer(sources);
                 useLlm = false;
             }
         } else {
-            // 未配置大模型 → 降级
             useLlm = false;
+            log.info("[QA] AI 未启用（ai.enabled=false），直接走纯检索模式");
             answer = chunks.isEmpty()
                     ? "未在课程知识库中找到与该问题相关的资料。建议：① 由教师上传相关课程资料；② 换一种更具体的方式提问。"
                     : buildRetrievalOnlyAnswer(sources);
         }
 
+        // 4) 落库（L8 记录 DB 耗时）
         long cost = System.currentTimeMillis() - start;
+        long t3 = System.currentTimeMillis();
 
         // 4) 落库问答记录
         QaRecord record = new QaRecord();
@@ -145,17 +156,29 @@ public class QaServiceImpl implements QaService {
         record.setQuestion(question);
         record.setAnswer(answer);
         record.setSourceChunks(sourceIds.length() > 0 ? sourceIds.toString() : null);
+        // M4 存储来源详情 JSON，用于历史记录展示
+        if (!sources.isEmpty()) {
+            try {
+                record.setSourcesJson(jsonMapper.writeValueAsString(sources));
+            } catch (Exception e) {
+                log.warn("[QA] 序列化 sources 失败", e);
+            }
+        }
         record.setUseLlm(useLlm ? 1 : 0);
         record.setCostMs((int) cost);
         record.setCreateTime(LocalDateTime.now());
         qaRecordMapper.insert(record);
+        long dbMs = System.currentTimeMillis() - t3;
 
-        // 5) 组装响应
+        // 5) 组装响应（L8 含分阶段耗时）
         QaAnswer resp = new QaAnswer();
         resp.setAnswer(answer);
         resp.setUseLlm(useLlm);
         resp.setCostMs(cost);
         resp.setSources(sources);
+        resp.setRetrievalMs(retrievalMs);
+        resp.setLlmMs(llmMs);
+        resp.setDbMs(dbMs);
         return resp;
     }
 
@@ -169,8 +192,10 @@ public class QaServiceImpl implements QaService {
                 Long courseId = request.getCourseId();
                 String question = request.getQuestion().trim();
 
-                // 1) BM25 检索
+                // 1) BM25 检索（L8 记录检索耗时）
+                long t1 = System.currentTimeMillis();
                 List<KnowledgeChunk> chunks = retriever.retrieve(courseId, question, topK);
+                long retrievalMs = System.currentTimeMillis() - t1;
 
                 // 2) 拼接上下文
                 int budget = (int) (tokenThreshold * tokenRatio);
@@ -194,22 +219,28 @@ public class QaServiceImpl implements QaService {
                 // 先发送来源信息
                 emitter.send(SseEmitter.event().name("sources").data(jsonMapper.writeValueAsString(sources)));
 
-                // 3) 流式生成回答
+                // 2.5) 获取最近对话历史（多轮追问，M3）
+                String historyContext = buildHistoryContext(userId, courseId);
+
+                // 3) 流式生成回答（L8 记录 LLM 耗时）
                 StringBuilder answerBuf = new StringBuilder();
                 boolean useLlm;
+                long llmMs = 0;
 
                 if (aiConfig.isAvailable()) {
                     String system;
                     String user;
                     if (chunks.isEmpty()) {
                         system = "你是 AetherLearn 智能助教，请友好、简洁地回答学生的问题。";
-                        user = "【学生问题】\n" + question;
+                        user = historyContext + "【学生问题】\n" + question;
                     } else {
-                        system = "你是 AetherLearn 智能助教。请仅依据下方【知识库内容】回答学生的问题，"
-                                + "语言简洁准确、通俗易懂；若知识库中未涵盖该问题，请明确说明'资料中未提及'，不要编造。";
-                        user = "【知识库内容】\n" + ctx + "\n\n【学生问题】\n" + question;
+                        system = "你是 AetherLearn 智能助教。请先直接回答学生的问题，然后如果下方知识库内容与问题相关，可以引用补充说明。"
+                                + "重要规则：你必须用你自己的知识回答问题，绝对不能说'资料中未提及'、'不在知识库中'等话。"
+                                + "知识库只是额外参考，不是你的知识边界。";
+                        user = historyContext + "【学生问题】\n" + question + "\n\n【知识库内容（仅供参考，不是你的全部知识）】\n" + ctx;
                     }
 
+                    long t2 = System.currentTimeMillis();
                     boolean ok = llmClient.chatStream(system, user, chunk -> {
                         try {
                             answerBuf.append(chunk);
@@ -218,11 +249,13 @@ public class QaServiceImpl implements QaService {
                             log.warn("[QA] SSE chunk 发送失败", e);
                         }
                     });
+                    llmMs = System.currentTimeMillis() - t2;
 
                     if (ok && answerBuf.length() > 0) {
                         useLlm = true;
+                        log.info("[QA] LLM 流式调用成功，耗时 {} ms，回答长度 {}", llmMs, answerBuf.length());
                     } else {
-                        // 流式失败 → 降级
+                        log.warn("[QA] LLM 流式返回空/失败，降级为纯检索模式，耗时 {} ms，chunks={}", llmMs, chunks.size());
                         useLlm = false;
                         String fallback = chunks.isEmpty()
                                 ? "未在课程知识库中找到与该问题相关的资料。建议：① 由教师上传相关课程资料；② 换一种更具体的方式提问。"
@@ -233,6 +266,7 @@ public class QaServiceImpl implements QaService {
                     }
                 } else {
                     useLlm = false;
+                    log.info("[QA] AI 未启用（ai.enabled=false），直接走纯检索模式");
                     String fallback = chunks.isEmpty()
                             ? "未在课程知识库中找到与该问题相关的资料。建议：① 由教师上传相关课程资料；② 换一种更具体的方式提问。"
                             : buildRetrievalOnlyAnswer(sources);
@@ -241,25 +275,40 @@ public class QaServiceImpl implements QaService {
                     emitter.send(SseEmitter.event().name("chunk").data(fallback));
                 }
 
-                long cost = System.currentTimeMillis() - start;
-
-                // 4) 落库
+                // 4) 落库（L8 记录 DB 耗时）
+                long t3 = System.currentTimeMillis();
                 QaRecord record = new QaRecord();
                 record.setUserId(userId);
                 record.setCourseId(courseId);
                 record.setQuestion(question);
                 record.setAnswer(answerBuf.toString());
                 record.setSourceChunks(sourceIds.length() > 0 ? sourceIds.toString() : null);
+                // M4 存储来源详情 JSON，用于历史记录展示
+                if (!sources.isEmpty()) {
+                    try {
+                        record.setSourcesJson(jsonMapper.writeValueAsString(sources));
+                    } catch (Exception ex) {
+                        log.warn("[QA] 序列化 sources 失败", ex);
+                    }
+                }
                 record.setUseLlm(useLlm ? 1 : 0);
-                record.setCostMs((int) cost);
+                record.setCostMs((int) (System.currentTimeMillis() - start));
                 record.setCreateTime(LocalDateTime.now());
                 qaRecordMapper.insert(record);
+                long dbMs = System.currentTimeMillis() - t3;
+                long cost = System.currentTimeMillis() - start;
+                final long finalLlmMs = llmMs;
+                final long finalRetrievalMs = retrievalMs;
+                final long finalDbMs = dbMs;
 
-                // 5) 发送完成事件
+                // 5) 发送完成事件（L8 含分阶段耗时）
                 emitter.send(SseEmitter.event().name("done").data(
                         jsonMapper.writeValueAsString(new java.util.LinkedHashMap<>() {{
                             put("useLlm", useLlm);
                             put("costMs", cost);
+                            put("retrievalMs", finalRetrievalMs);
+                            put("llmMs", finalLlmMs);
+                            put("dbMs", finalDbMs);
                         }})));
                 // 等待 SSE 数据刷新到客户端后再关闭连接，避免 done 事件丢失
                 Thread.sleep(200);
@@ -278,7 +327,7 @@ public class QaServiceImpl implements QaService {
     }
 
     @Override
-    public List<QaRecord> history(Long userId, Long courseId) {
+    public List<QaHistoryVO> history(Long userId, Long courseId) {
         LambdaQueryWrapper<QaRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(QaRecord::getUserId, userId);
         if (courseId != null) {
@@ -286,7 +335,60 @@ public class QaServiceImpl implements QaService {
         }
         wrapper.orderByDesc(QaRecord::getCreateTime);
         wrapper.last("LIMIT 50");
-        return qaRecordMapper.selectList(wrapper);
+        List<QaRecord> records = qaRecordMapper.selectList(wrapper);
+
+        // M4 转换为 QaHistoryVO，解析 sourcesJson
+        List<QaHistoryVO> result = new ArrayList<>();
+        for (QaRecord r : records) {
+            QaHistoryVO vo = new QaHistoryVO();
+            vo.setId(r.getId());
+            vo.setQuestion(r.getQuestion());
+            vo.setAnswer(r.getAnswer());
+            vo.setUseLlm(r.getUseLlm());
+            vo.setCostMs(r.getCostMs());
+            vo.setCreateTime(r.getCreateTime());
+            // 解析来源 JSON
+            if (r.getSourcesJson() != null && !r.getSourcesJson().isBlank()) {
+                try {
+                    List<QaSource> sources = jsonMapper.readValue(r.getSourcesJson(),
+                            jsonMapper.getTypeFactory().constructCollectionType(List.class, QaSource.class));
+                    vo.setSources(sources);
+                } catch (Exception e) {
+                    log.warn("[QA] 解析 sourcesJson 失败: recordId={}", r.getId(), e);
+                    vo.setSources(new ArrayList<>());
+                }
+            } else {
+                vo.setSources(new ArrayList<>());
+            }
+            result.add(vo);
+        }
+        return result;
+    }
+
+    /**
+     * 构建多轮追问上下文（最近 3 轮对话历史）
+     * <p>从 qa_record 表查询当前用户当前课程最近 3 条问答记录，拼接为上下文字符串。</p>
+     */
+    private String buildHistoryContext(Long userId, Long courseId) {
+        LambdaQueryWrapper<QaRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(QaRecord::getUserId, userId);
+        wrapper.eq(QaRecord::getCourseId, courseId);
+        wrapper.orderByDesc(QaRecord::getCreateTime);
+        wrapper.last("LIMIT 3");
+        List<QaRecord> history = qaRecordMapper.selectList(wrapper);
+        if (history == null || history.isEmpty()) {
+            return "";
+        }
+        // 反转为时间正序（最早的在前）
+        List<QaRecord> reversed = new ArrayList<>(history);
+        java.util.Collections.reverse(reversed);
+        StringBuilder sb = new StringBuilder();
+        sb.append("【对话历史】\n");
+        for (QaRecord r : reversed) {
+            sb.append("学生：").append(r.getQuestion()).append("\n");
+            sb.append("助教：").append(r.getAnswer()).append("\n\n");
+        }
+        return sb.toString();
     }
 
     /** 降级答案：直接展示检索到的资料片段 */

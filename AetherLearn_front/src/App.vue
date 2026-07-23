@@ -1,8 +1,13 @@
 <template>
-  <!-- 应用根节点：仅承载路由出口 -->
-  <router-view />
+  <n-message-provider>
+    <n-dialog-provider>
+      <n-notification-provider>
+        <router-view />
+      </n-notification-provider>
+    </n-dialog-provider>
+  </n-message-provider>
 </template>
 
 <script setup>
-// App 根组件：无额外逻辑，仅渲染当前路由页面
+import { NDialogProvider, NMessageProvider, NNotificationProvider } from 'naive-ui'
 </script>

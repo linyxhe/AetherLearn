@@ -39,6 +39,8 @@ public class SecurityConfig {
         http
                 // 关闭 CSRF（JWT 无状态，无需防跨站）
                 .csrf(AbstractHttpConfigurer::disable)
+                // 允许课程 PDF 等上传资料在前端学习页 iframe 中预览
+                .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()))
                 // 无状态会话
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // 所有请求先经 JWT 过滤器鉴权；方法级 @PreAuthorize 再校验角色

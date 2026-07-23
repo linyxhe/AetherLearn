@@ -2,7 +2,7 @@ package com.aetherlearn.service;
 
 import com.aetherlearn.dto.QaAnswer;
 import com.aetherlearn.dto.QaAskRequest;
-import com.aetherlearn.entity.QaRecord;
+import com.aetherlearn.dto.QaHistoryVO;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
@@ -24,7 +24,7 @@ public interface QaService {
     SseEmitter askStream(Long userId, QaAskRequest request);
 
     /**
-     * 查询当前用户的问答历史
+     * 查询当前用户的问答历史（M4 含来源详情）
      */
-    List<QaRecord> history(Long userId, Long courseId);
+    List<QaHistoryVO> history(Long userId, Long courseId);
 }

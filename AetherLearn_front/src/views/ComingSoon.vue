@@ -22,10 +22,24 @@ function goBack() {
 
 <style scoped>
 .coming {
-  max-width: 520px;
-  margin: 60px auto;
+  max-width: 480px;
+  margin: 80px auto;
   text-align: center;
   line-height: 1.8;
+  padding: 40px 32px;
 }
-.illustration { font-size: 64px; }
+.coming h2 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  margin: 16px 0 8px;
+}
+.coming p {
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.illustration {
+  font-size: 56px;
+  line-height: 1;
+}
 </style>
