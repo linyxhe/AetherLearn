@@ -8,6 +8,7 @@ import com.aetherlearn.dto.QaHistoryVO;
 import com.aetherlearn.service.QaService;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,6 +36,7 @@ public class QaController {
     /**
      * 同步提问（检索 + 大模型 / 降级）
      */
+    @PreAuthorize("hasRole('STUDENT')")
     @PostMapping("/ask")
     public Result<QaAnswer> ask(@Valid @RequestBody QaAskRequest request) {
         Long userId = SecurityUtils.getCurrentUserId();
@@ -45,6 +47,7 @@ public class QaController {
      * 流式提问（SSE），前端通过 EventSource 消费
      * <p>事件类型：sources（来源列表）、chunk（逐字回答）、done（完成元数据）、error（异常）。</p>
      */
+    @PreAuthorize("hasRole('STUDENT')")
     @PostMapping(value = "/ask-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter askStream(@Valid @RequestBody QaAskRequest request) {
         Long userId = SecurityUtils.getCurrentUserId();
@@ -54,6 +57,7 @@ public class QaController {
     /**
      * 当前用户的问答历史（M4 含来源详情）
      */
+    @PreAuthorize("hasRole('STUDENT')")
     @GetMapping("/history")
     public Result<List<QaHistoryVO>> history(@RequestParam(required = false) Long courseId) {
         Long userId = SecurityUtils.getCurrentUserId();

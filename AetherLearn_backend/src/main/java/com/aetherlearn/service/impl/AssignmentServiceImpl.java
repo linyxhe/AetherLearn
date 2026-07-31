@@ -33,6 +33,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -587,10 +589,17 @@ public class AssignmentServiceImpl implements AssignmentService {
         return course == null ? null : course.getTeacherId();
     }
 
+    /**
+     * 解析作业起止时间，兼容标准日期字符串和旧前端传来的毫秒时间戳。
+     */
     private LocalDateTime parseTime(String time) {
         if (time == null || time.isBlank()) return null;
         try {
-            return LocalDateTime.parse(time.trim(), DTF);
+            String normalized = time.trim();
+            if (normalized.matches("\\d{13}")) {
+                return LocalDateTime.ofInstant(Instant.ofEpochMilli(Long.parseLong(normalized)), ZoneId.systemDefault());
+            }
+            return LocalDateTime.parse(normalized, DTF);
         } catch (Exception e) {
             throw new BusinessException(400, "时间格式应为 yyyy-MM-dd HH:mm:ss");
         }

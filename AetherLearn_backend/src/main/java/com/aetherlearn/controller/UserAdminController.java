@@ -31,14 +31,18 @@ public class UserAdminController {
      * @param size 每页条数（默认 10）
      * @param keyword 搜索关键字（用户名/姓名）
      * @param role 角色筛选（1-管理员 2-教师 3-学生）
+     * @param sortBy 排序字段
+     * @param sortOrder 排序方向（asc/desc）
      */
     @GetMapping
     public Result<Map<String, Object>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Integer role) {
-        Page<SysUser> result = userService.listUsers(page, size, keyword, role);
+            @RequestParam(required = false) Integer role,
+            @RequestParam(defaultValue = "createTime") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortOrder) {
+        Page<SysUser> result = userService.listUsers(page, size, keyword, role, sortBy, sortOrder);
         Map<String, Object> data = new HashMap<>();
         data.put("records", result.getRecords());
         data.put("total", result.getTotal());

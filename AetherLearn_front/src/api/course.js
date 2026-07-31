@@ -36,6 +36,11 @@ export function deleteCourseChapter(chapterId) {
   return request.delete(`/course/chapters/${chapterId}`)
 }
 
+/** 删除章节已上传的资源文件（教师/管理员）。 */
+export function deleteCourseChapterResource(chapterId) {
+  return request.delete(`/course/chapters/${chapterId}/resource`)
+}
+
 /** 完成课程章节学习（学生） */
 export function completeCourseChapter(chapterId) {
   return request.post(`/course/chapters/${chapterId}/complete`)

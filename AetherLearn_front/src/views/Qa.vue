@@ -97,6 +97,11 @@ function renderMd(text) {
 
 async function loadCourses() {
   courses.value = await listCourses()
+  if (selectedCourse.value && !courses.value.some((course) => course.id === selectedCourse.value)) {
+    selectedCourse.value = null
+    messages.value = []
+    localStorage.removeItem('qa_selectedCourse')
+  }
 }
 function onCourseChange() {
   messages.value = []

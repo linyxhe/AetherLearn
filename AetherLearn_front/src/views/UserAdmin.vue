@@ -12,37 +12,47 @@
         placeholder="搜索用户名/姓名"
         clearable
         style="width: 220px"
-        @clear="load"
-        @keyup.enter="load"
+        @clear="onFilterChange"
+        @keyup.enter="onSearch"
       >
         <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
-      <el-select v-model="roleFilter" placeholder="全部角色" clearable style="width: 130px" @change="load">
+      <el-select v-model="roleFilter" placeholder="全部角色" clearable style="width: 130px" @change="onFilterChange">
         <el-option label="管理员" :value="1" />
         <el-option label="教师" :value="2" />
         <el-option label="学生" :value="3" />
       </el-select>
-      <el-button @click="load">查询</el-button>
+      <el-button @click="onSearch">查询</el-button>
+      <el-button @click="resetFilters">重置</el-button>
     </div>
 
     <!-- 用户列表 -->
     <div class="aeth-card">
-      <el-table :data="users" v-loading="loading" stripe>
-        <el-table-column prop="username" label="用户名" width="120" />
-        <el-table-column prop="realName" label="姓名" width="100" />
-        <el-table-column label="角色" width="90">
+      <el-table
+        :data="users"
+        v-loading="loading"
+        stripe
+        :default-sort="{ prop: 'createTime', order: 'descending' }"
+        @sort-change="onSortChange"
+      >
+        <el-table-column prop="username" label="用户名" width="120" sortable="custom" />
+        <el-table-column prop="realName" label="姓名" width="100" sortable="custom" />
+        <el-table-column prop="role" label="角色" width="100" sortable="custom">
           <template #default="{ row }">
             <el-tag :type="roleTagType(row.role)">{{ roleName(row.role) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="email" label="邮箱" min-width="160" show-overflow-tooltip />
         <el-table-column prop="phone" label="手机号" width="130" />
-        <el-table-column label="状态" width="80">
+        <el-table-column prop="status" label="状态" width="100" sortable="custom">
           <template #default="{ row }">
             <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">
               {{ row.status === 1 ? '正常' : '禁用' }}
             </el-tag>
           </template>
+        </el-table-column>
+        <el-table-column prop="createTime" label="创建时间" width="170" sortable="custom">
+          <template #default="{ row }">{{ formatDateTime(row.createTime) }}</template>
         </el-table-column>
         <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
@@ -65,11 +75,12 @@
         <el-pagination
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
           :total="total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next"
-          @size-change="load"
-          @current-change="load"
+          :page-sizes="pageSizeOptions"
+          @current-change="onPageChange"
+          @size-change="onPageSizeChange"
         />
       </div>
     </div>
@@ -126,7 +137,10 @@ const keyword = ref('')
 const roleFilter = ref(null)
 const currentPage = ref(1)
 const pageSize = ref(10)
+const pageSizeOptions = [10, 20, 50]
 const total = ref(0)
+const sortBy = ref('createTime')
+const sortOrder = ref('desc')
 
 // 表单状态
 const dialogVisible = ref(false)
@@ -158,21 +172,85 @@ function roleTagType(role) {
   return { 1: 'danger', 2: 'primary', 3: 'success' }[role] || 'info'
 }
 
-// 加载用户列表
+/** 将后端时间转换为便于管理员阅读的日期时间。 */
+function formatDateTime(value) {
+  if (!value) return '-'
+  return String(value).replace('T', ' ').slice(0, 19)
+}
+
+/** 请求当前筛选条件和页码下的用户数据。 */
+function requestUserList() {
+  return getUserList({
+    page: currentPage.value,
+    size: pageSize.value,
+    keyword: keyword.value || undefined,
+    role: roleFilter.value || undefined,
+    sortBy: sortBy.value,
+    sortOrder: sortOrder.value
+  })
+}
+
+/** 加载用户列表，并在删除末页数据后自动回退到有效页码。 */
 async function load() {
   loading.value = true
   try {
-    const res = await getUserList({
-      page: currentPage.value,
-      size: pageSize.value,
-      keyword: keyword.value || undefined,
-      role: roleFilter.value || undefined
-    })
-    users.value = res.records
-    total.value = res.total
+    let res = await requestUserList()
+    let responseTotal = Number(res?.total || 0)
+    const lastPage = Math.max(1, Math.ceil(responseTotal / pageSize.value))
+
+    // 删除当前页最后一条数据后，重新请求上一有效页，避免出现空白列表。
+    if (currentPage.value > lastPage) {
+      currentPage.value = lastPage
+      res = await requestUserList()
+      responseTotal = Number(res?.total || 0)
+    }
+
+    users.value = res?.records || []
+    total.value = responseTotal
   } finally {
     loading.value = false
   }
+}
+
+/** 执行关键字查询，始终从第一页展示筛选结果。 */
+function onSearch() {
+  currentPage.value = 1
+  load()
+}
+
+/** 切换角色或清空关键字时回到第一页。 */
+function onFilterChange() {
+  currentPage.value = 1
+  load()
+}
+
+/** 清除全部筛选条件，并从第一页重新加载用户。 */
+function resetFilters() {
+  keyword.value = ''
+  roleFilter.value = null
+  currentPage.value = 1
+  load()
+}
+
+/** 用户切换页码时加载对应页的数据。 */
+function onPageChange(page) {
+  currentPage.value = page
+  load()
+}
+
+/** 调整每页显示条数后回到第一页，避免越界。 */
+function onPageSizeChange(size) {
+  pageSize.value = size
+  currentPage.value = 1
+  load()
+}
+
+/** 根据表头点击结果执行服务端排序，并从第一页重新加载。 */
+function onSortChange({ prop, order }) {
+  sortBy.value = order ? prop : 'createTime'
+  sortOrder.value = order === 'ascending' ? 'asc' : 'desc'
+  currentPage.value = 1
+  load()
 }
 
 // 重置表单
@@ -220,13 +298,16 @@ async function onSave() {
     if (isEdit.value && !data.password) {
       delete data.password
     }
-    if (isEdit.value) {
+    const editing = isEdit.value
+    if (editing) {
       await updateUser(editId.value, data)
     } else {
       await createUser(data)
     }
-    ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
+    ElMessage.success(editing ? '更新成功' : '创建成功')
     dialogVisible.value = false
+    // 新建用户按创建时间倒序展示，回到首页即可立即看到新增记录。
+    if (!editing) currentPage.value = 1
     await load()
   } finally {
     saving.value = false
@@ -265,12 +346,23 @@ onMounted(load)
 .filter-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 16px;
 }
 .pagination {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-top: 16px;
+}
+@media (max-width: 640px) {
+  .head { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+  .filter-bar :deep(.el-input),
+  .filter-bar :deep(.el-select) { width: 100% !important; }
+  .filter-bar :deep(.el-button) { flex: 1 1 calc(50% - 6px); }
+  .pagination { justify-content: center; }
 }
 </style>

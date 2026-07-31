@@ -34,8 +34,13 @@
                   <span v-else>{{ avatarText }}</span>
                 </div>
                 <div class="avatar-actions">
-                  <UploadFile v-model="profile.avatar" biz-type="avatar" accept="image/*" />
-                  <div class="hint">建议使用清晰正方形头像，保存后同步到全局用户信息。</div>
+                  <UploadFile
+                    v-model="profile.avatar"
+                    biz-type="avatar"
+                    accept="image/*"
+                    @upload-success="saveAvatar"
+                  />
+                  <div class="hint">头像上传成功后会立即保存，并同步显示到顶部导航栏。</div>
                 </div>
               </div>
             </n-form-item>
@@ -124,6 +129,7 @@ import { getDashboardStat, getAnalyticsOverview } from '../api/dashboard'
 const { message } = createDiscreteApi(['message'])
 const userStore = useUserStore()
 const saving = ref(false)
+const avatarSaving = ref(false)
 const profile = reactive({
   username: '',
   realName: '',
@@ -159,6 +165,8 @@ function resolveUrl(url) {
 async function loadProfile() {
   const info = await getUserInfo()
   Object.assign(profile, info || {})
+  // 页面刷新后以数据库档案覆盖本地登录快照，确保顶部导航栏同步显示最新头像。
+  if (info) userStore.setUser(info)
   profile.password = ''
 }
 
@@ -211,6 +219,20 @@ async function onSave() {
     profile.password = ''
   } finally {
     saving.value = false
+  }
+}
+
+// 头像文件上传完成后立即写入用户表，避免用户遗漏“保存资料”操作。
+async function saveAvatar(url) {
+  if (!url || avatarSaving.value) return
+  avatarSaving.value = true
+  try {
+    profile.avatar = url
+    const data = await updateUser({ avatar: url })
+    userStore.setUser(data)
+    message.success('头像已更新')
+  } finally {
+    avatarSaving.value = false
   }
 }
 

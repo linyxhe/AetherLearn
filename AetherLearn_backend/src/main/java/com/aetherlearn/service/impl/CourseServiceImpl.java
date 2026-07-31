@@ -15,9 +15,15 @@ import com.aetherlearn.mapper.CourseStudentMapper;
 import com.aetherlearn.mapper.LearningRecordMapper;
 import com.aetherlearn.service.CourseService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -33,6 +39,10 @@ public class CourseServiceImpl implements CourseService {
     private final CourseStudentMapper courseStudentMapper;
     private final CourseChapterMapper courseChapterMapper;
     private final LearningRecordMapper learningRecordMapper;
+
+    /** 章节文件上传根目录。 */
+    @Value("${file.upload-dir}")
+    private String uploadDir;
 
     public CourseServiceImpl(CourseMapper courseMapper,
                              CourseStudentMapper courseStudentMapper,
@@ -216,7 +226,12 @@ public class CourseServiceImpl implements CourseService {
         chapter.setTitle(request.getTitle());
         chapter.setContent(request.getContent());
         chapter.setResourceType(request.getResourceType() == null ? "TEXT" : request.getResourceType());
-        chapter.setResourceUrl(request.getResourceUrl());
+        // 编辑时未重新上传文件不应覆盖已有资源路径，避免章节资料在保存后丢失。
+        String resourceUrl = request.getResourceUrl();
+        if (chapter.getId() != null && (resourceUrl == null || resourceUrl.isBlank())) {
+            resourceUrl = chapter.getResourceUrl();
+        }
+        chapter.setResourceUrl(resourceUrl);
         chapter.setDurationMinutes(request.getDurationMinutes() == null ? 15 : request.getDurationMinutes());
         chapter.setSortNo(request.getSortNo() == null ? 1 : request.getSortNo());
         chapter.setStatus(request.getStatus() == null ? 1 : request.getStatus());
@@ -236,6 +251,46 @@ public class CourseServiceImpl implements CourseService {
         int rows = courseChapterMapper.deleteById(chapterId);
         if (rows == 0) {
             throw new BusinessException(404, "章节不存在");
+        }
+    }
+
+    /**
+     * 删除章节资源文件，并将数据库中的资源地址清空。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteChapterResource(Long chapterId) {
+        CourseChapter chapter = courseChapterMapper.selectById(chapterId);
+        if (chapter == null) {
+            throw new BusinessException(404, "章节不存在");
+        }
+        deleteStoredCourseResource(chapter.getResourceUrl());
+        courseChapterMapper.update(null, new LambdaUpdateWrapper<CourseChapter>()
+                .eq(CourseChapter::getId, chapterId)
+                .set(CourseChapter::getResourceUrl, null)
+                .set(CourseChapter::getUpdateTime, LocalDateTime.now()));
+    }
+
+    /**
+     * 仅允许删除 uploads/course 分桶中的文件，防止通过资源地址越界删除其他文件。
+     */
+    private void deleteStoredCourseResource(String resourceUrl) {
+        if (resourceUrl == null || resourceUrl.isBlank()) {
+            return;
+        }
+        final String prefix = "/uploads/course/";
+        if (!resourceUrl.startsWith(prefix)) {
+            return;
+        }
+        Path courseDir = Paths.get(uploadDir, "course").toAbsolutePath().normalize();
+        Path target = courseDir.resolve(resourceUrl.substring(prefix.length())).normalize();
+        if (!target.startsWith(courseDir)) {
+            throw new BusinessException(400, "非法的章节资源路径");
+        }
+        try {
+            Files.deleteIfExists(target);
+        } catch (IOException e) {
+            throw new BusinessException(500, "删除章节资源文件失败：" + e.getMessage());
         }
     }
 

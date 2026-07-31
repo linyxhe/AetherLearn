@@ -4,11 +4,12 @@
       :collapsed="collapsed"
       :collapsed-width="72"
       :width="246"
+      collapse-mode="width"
       :native-scrollbar="false"
       class="sider"
       bordered
     >
-      <div class="brand">
+      <div class="brand" :class="{ 'brand-collapsed': collapsed }">
         <div class="brand-mark">{{ brandMark }}</div>
         <div v-if="!collapsed" class="brand-copy">
           <div class="brand-name">AetherLearn</div>
@@ -16,14 +17,16 @@
         </div>
       </div>
 
-      <div v-if="!collapsed" class="role-panel">
-        <div class="role-title">{{ roleLabel }}</div>
-        <div class="role-desc">{{ roleDescription }}</div>
-      </div>
+<!--      <div v-if="!collapsed" class="role-panel">-->
+<!--        <div class="role-title">{{ roleLabel }}</div>-->
+<!--        <div class="role-desc">{{ roleDescription }}</div>-->
+<!--      </div>-->
 
       <n-menu
+        v-if="!collapsed"
         :collapsed="collapsed"
         :collapsed-width="72"
+        :collapsed-icon-size="22"
         :options="menuOptions"
         :value="activeMenu"
         :indent="18"
@@ -32,6 +35,22 @@
         class="nav"
         @update:value="onSelect"
       />
+      <div v-else class="collapsed-nav" aria-label="主导航">
+        <n-tooltip v-for="item in visibleMenus" :key="item.path" placement="right">
+          <template #trigger>
+            <button
+              type="button"
+              class="collapsed-nav-item"
+              :class="{ active: activeMenu === item.path }"
+              :aria-label="menuTitle(item)"
+              @click="onSelect(item.path)"
+            >
+              <n-icon :size="24"><component :is="item.icon" /></n-icon>
+            </button>
+          </template>
+          {{ menuTitle(item) }}
+        </n-tooltip>
+      </div>
     </n-layout-sider>
 
     <n-layout>
@@ -53,7 +72,19 @@
             <n-tag v-else-if="isStudent" type="info" round>学生学习端</n-tag>
             <n-dropdown :options="dropdownOptions" @select="onCommand">
               <div class="user-box">
-                <n-avatar round :size="34" :style="{ background: 'linear-gradient(135deg,#42B5BB,#87D8C9)' }">
+                <n-avatar
+                  v-if="userAvatarUrl"
+                  round
+                  :size="34"
+                  :src="userAvatarUrl"
+                  :style="{ background: 'linear-gradient(135deg,#42B5BB,#87D8C9)' }"
+                />
+                <n-avatar
+                  v-else
+                  round
+                  :size="34"
+                  :style="{ background: 'linear-gradient(135deg,#42B5BB,#87D8C9)' }"
+                >
                   {{ userInitial }}
                 </n-avatar>
                 <div class="user-copy">
@@ -77,11 +108,12 @@
 </template>
 
 <script setup>
-import { computed, h, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore, ROLE } from '../store/user'
 import { logout as logoutApi } from '../api/auth'
-import { NAvatar, NButton, NDropdown, NIcon, NLayout, NLayoutContent, NLayoutHeader, NLayoutSider, NMenu, NSpace, NTag, createDiscreteApi } from 'naive-ui'
+import { getUserInfo } from '../api/user'
+import { NAvatar, NButton, NDropdown, NIcon, NLayout, NLayoutContent, NLayoutHeader, NLayoutSider, NMenu, NSpace, NTag, NTooltip, createDiscreteApi } from 'naive-ui'
 import { Bell, DataLine, Reading, User, Files, EditPen, ChatDotRound, School, Fold, Expand, CaretBottom, WarningFilled, Calendar, TrendCharts, Memo, Share, MagicStick, Setting } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -95,6 +127,12 @@ const isStudent = computed(() => userStore.role === ROLE.STUDENT)
 const isAdmin = computed(() => userStore.role === ROLE.ADMIN)
 const roleText = computed(() => userStore.roleName || '用户')
 const userInitial = computed(() => (userStore.realName?.[0] || userStore.user?.username?.[0] || 'U'))
+const userAvatarUrl = computed(() => {
+  const avatar = userStore.user?.avatar
+  if (!avatar) return undefined
+  if (/^https?:\/\//i.test(avatar)) return avatar
+  return avatar.startsWith('/') ? avatar : `/${avatar}`
+})
 const activeMenu = computed(() => route.path)
 const headerTitle = computed(() => {
   if (isAdmin.value && route.path === '/dashboard') return '平台看板'
@@ -122,6 +160,16 @@ const roleIntro = computed(() => {
 })
 const brandMark = computed(() => (isTeacher.value ? 'T' : isStudent.value ? 'S' : 'A'))
 
+// 布局初始化时从数据库刷新档案，避免本地登录缓存中的旧头像长期停留在顶部导航栏。
+onMounted(async () => {
+  try {
+    const profile = await getUserInfo()
+    if (profile) userStore.setUser(profile)
+  } catch (_) {
+    // 接口异常已由请求拦截器提示；保留当前本地档案作为降级展示。
+  }
+})
+
 const allMenus = [
   { path: '/dashboard', title: '数据看板', adminTitle: '平台看板', icon: DataLine, roles: [ROLE.ADMIN, ROLE.TEACHER] },
   { path: '/ai-advice', title: 'AI 教学建议', icon: Memo, roles: [ROLE.TEACHER] },
@@ -133,6 +181,7 @@ const allMenus = [
   { path: '/knowledge-graph', title: '知识点图谱', icon: Share, roles: [ROLE.TEACHER, ROLE.STUDENT] },
   { path: '/student-dashboard', title: '学习中心', icon: School, roles: [ROLE.STUDENT] },
   { path: '/my-course', title: '我的课程', icon: Reading, roles: [ROLE.STUDENT] },
+  { path: '/my-notes', title: '我的笔记', icon: Memo, roles: [ROLE.STUDENT] },
   { path: '/my-homework', title: '我的作业', icon: EditPen, roles: [ROLE.STUDENT] },
   { path: '/wrong-book', title: '错题本', icon: WarningFilled, roles: [ROLE.STUDENT] },
   { path: '/todo', title: '学习计划', icon: Calendar, roles: [ROLE.STUDENT] },
@@ -142,8 +191,9 @@ const allMenus = [
   { path: '/user', title: '用户管理', icon: User, roles: [ROLE.ADMIN] },
   { path: '/config', title: '系统配置', icon: Setting, roles: [ROLE.ADMIN] }
 ]
-const menuOptions = computed(() => allMenus.filter((item) => item.roles.includes(userStore.role)).map((item) => ({
-  label: isAdmin.value && item.adminTitle ? item.adminTitle : item.title,
+const visibleMenus = computed(() => allMenus.filter((item) => item.roles.includes(userStore.role)))
+const menuOptions = computed(() => visibleMenus.value.map((item) => ({
+  label: menuTitle(item),
   key: item.path,
   icon: () => h(NIcon, null, { default: () => h(item.icon) })
 })))
@@ -155,6 +205,11 @@ const dropdownOptions = [
 
 function renderMenuLabel(option) {
   return option.label
+}
+
+// 根据当前角色提供一致的菜单文案，展开与折叠状态共用。
+function menuTitle(item) {
+  return isAdmin.value && item.adminTitle ? item.adminTitle : item.title
 }
 
 function onSelect(path) {
@@ -196,6 +251,7 @@ function onCommand(cmd) {
   gap: 12px;
   padding: 20px 18px 14px;
 }
+.brand-collapsed { justify-content: center; padding: 20px 0 14px; }
 .brand-mark {
   width: 40px;
   height: 40px;
@@ -219,12 +275,48 @@ function onCommand(cmd) {
 .role-title { font-weight: 700; margin-bottom: 4px; }
 .role-desc { font-size: 12.5px; line-height: 1.6; opacity: 0.88; }
 .nav :deep(.n-menu-item-content) { color: rgba(255,255,255,0.88); }
+.nav :deep(.n-menu-item-content__icon),
+.nav :deep(.n-menu-item-content__icon .n-icon),
+.nav :deep(.n-menu-item-content__icon svg) {
+  color: rgba(255,255,255,0.96) !important;
+  fill: currentColor !important;
+  filter: drop-shadow(0 1px 2px rgba(17, 77, 83, 0.18));
+}
+.nav :deep(.n-menu-item-content--collapsed) {
+  width: 46px;
+  margin: 0 auto;
+  padding-left: 0 !important;
+  justify-content: center;
+}
+.nav :deep(.n-menu-item-content--collapsed .n-menu-item-content__icon) {
+  margin-right: 0 !important;
+}
 .nav :deep(.n-menu-item-content--selected) {
   color: #fff;
-  background: rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.22);
   border-radius: 12px;
+  box-shadow: inset 3px 0 0 rgba(255,255,255,0.92);
 }
 .nav :deep(.n-menu-item-content:hover) { background: rgba(255,255,255,0.12); border-radius: 12px; }
+.collapsed-nav { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 13px; }
+.collapsed-nav-item {
+  width: 46px;
+  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: rgba(255,255,255,0.96);
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background-color .18s ease, transform .18s ease;
+}
+.collapsed-nav-item :deep(svg) { fill: currentColor; filter: drop-shadow(0 1px 2px rgba(17, 77, 83, 0.18)); }
+.collapsed-nav-item:hover { background: rgba(255,255,255,0.14); transform: translateY(-1px); }
+.collapsed-nav-item:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.collapsed-nav-item.active { background: rgba(255,255,255,0.24); box-shadow: inset 3px 0 0 rgba(255,255,255,0.92); }
 .header {
   height: 72px;
   display: flex;

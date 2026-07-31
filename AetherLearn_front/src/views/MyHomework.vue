@@ -171,6 +171,7 @@ const selectedCourse = ref(null)
 const assignments = ref([])
 const loading = ref(false)
 const resultMap = reactive({})
+let assignmentLoadToken = 0
 const currentPage = ref(1)
 const pageSize = 10
 const pagedAssignments = computed(() => {
@@ -182,10 +183,13 @@ const questionTypes = [
   { value: 1, label: '单选' }, { value: 2, label: '多选' }, { value: 3, label: '判断' }, { value: 4, label: '填空' }, { value: 5, label: '简答' }
 ]
 const typeLabel = (t) => questionTypes.find((x) => x.value === t)?.label || '未知'
+const submittedCount = computed(() =>
+  assignments.value.filter((assignment) => resultMap[assignment.id]?.submitted).length
+)
 const statCards = computed(() => [
   { label: '作业总数', value: assignments.value.length },
-  { label: '已提交', value: Object.values(resultMap).filter((i) => i.submitted).length },
-  { label: '未提交', value: assignments.value.length - Object.values(resultMap).filter((i) => i.submitted).length }
+  { label: '已提交', value: submittedCount.value },
+  { label: '未提交', value: Math.max(0, assignments.value.length - submittedCount.value) }
 ])
 const doVisible = ref(false)
 const phase = ref('answer')
@@ -197,7 +201,7 @@ const submitting = ref(false)
 const letter = (i) => String.fromCharCode(65 + i)
 const editorInstances = shallowRef({})
 const ATTACHMENT_MENU_KEY = 'insertAttachment'
-let attachmentMenuRegistered = false
+const ATTACHMENT_MENU_REGISTERED_FLAG = Symbol.for('aetherlearn.wangeditor.insertAttachment.registered')
 
 function escapeHtml(text = '') {
   return String(text)
@@ -240,36 +244,46 @@ function pickAttachmentFile(editor) {
   input.click()
 }
 
-// 注册 WangEditor 自定义“插入附件”菜单
+/** 全局且幂等地注册 WangEditor 自定义“插入附件”菜单。 */
 function registerAttachmentMenu() {
-  if (attachmentMenuRegistered) return
-  attachmentMenuRegistered = true
-  Boot.registerMenu(
-    {
-      key: ATTACHMENT_MENU_KEY,
-      factory() {
-        return {
-          title: '插入附件',
-          iconSvg:
-            '<svg viewBox="0 0 1024 1024" width="16" height="16"><path fill="currentColor" d="M336 736a176 176 0 0 1 0-248l256-256a112 112 0 1 1 160 160L456 688a48 48 0 0 1-68-68l224-224a16 16 0 1 0-23-23L365 597a112 112 0 0 0 160 160l256-256a208 208 0 1 0-294-294L231 463a16 16 0 1 0 23 23l256-256a272 272 0 1 1 384 384l-256 256a176 176 0 0 1-248 0Z"/></svg>',
-          tag: 'button',
-          alwaysEnable: true,
-          getValue() {
-            return ''
-          },
-          isActive() {
-            return false
-          },
-          isDisabled() {
-            return false
-          },
-          exec(editor) {
-            pickAttachmentFile(editor)
+  if (globalThis[ATTACHMENT_MENU_REGISTERED_FLAG]) return
+
+  try {
+    Boot.registerMenu(
+      {
+        key: ATTACHMENT_MENU_KEY,
+        factory() {
+          return {
+            title: '插入附件',
+            iconSvg:
+              '<svg viewBox="0 0 1024 1024" width="16" height="16"><path fill="currentColor" d="M336 736a176 176 0 0 1 0-248l256-256a112 112 0 1 1 160 160L456 688a48 48 0 0 1-68-68l224-224a16 16 0 1 0-23-23L365 597a112 112 0 0 0 160 160l256-256a208 208 0 1 0-294-294L231 463a16 16 0 1 0 23 23l256-256a272 272 0 1 1 384 384l-256 256a176 176 0 0 1-248 0Z"/></svg>',
+            tag: 'button',
+            alwaysEnable: true,
+            getValue() {
+              return ''
+            },
+            isActive() {
+              return false
+            },
+            isDisabled() {
+              return false
+            },
+            exec(editor) {
+              pickAttachmentFile(editor)
+            }
           }
         }
       }
+    )
+    globalThis[ATTACHMENT_MENU_REGISTERED_FLAG] = true
+  } catch (error) {
+    // 开发环境热更新时旧菜单可能仍保留在 WangEditor 中，视为已经注册即可。
+    if (String(error?.message || '').includes(`Duplicated key '${ATTACHMENT_MENU_KEY}'`)) {
+      globalThis[ATTACHMENT_MENU_REGISTERED_FLAG] = true
+      return
     }
-  )
+    throw error
+  }
 }
 
 registerAttachmentMenu()
@@ -367,20 +381,35 @@ async function onSubmit() {
     submitting.value = false
   }
 }
+/** 清空上一门课程的作业提交状态，避免跨课程统计。 */
+function clearAssignmentResults() {
+  Object.keys(resultMap).forEach((id) => delete resultMap[id])
+}
+
+/** 加载当前课程作业，并忽略快速切换课程产生的过期请求结果。 */
 async function loadAssignments() {
+  const loadToken = ++assignmentLoadToken
+  const courseId = selectedCourse.value
   loading.value = true
+  currentPage.value = 1
+  assignments.value = []
+  clearAssignmentResults()
   try {
-    assignments.value = await fetchAssignments(selectedCourse.value)
-    await Promise.all(assignments.value.map(async (a) => {
+    const nextAssignments = await fetchAssignments(courseId)
+    if (loadToken !== assignmentLoadToken) return
+    assignments.value = nextAssignments
+    await Promise.all(nextAssignments.map(async (a) => {
+      let result
       try {
         const r = await getAnswerResult(a.id)
-        resultMap[a.id] = { submitted: !!r.submitted, earnedScore: r.earnedScore }
+        result = { submitted: !!r.submitted, earnedScore: r.earnedScore }
       } catch {
-        resultMap[a.id] = { submitted: false, earnedScore: 0 }
+        result = { submitted: false, earnedScore: 0 }
       }
+      if (loadToken === assignmentLoadToken) resultMap[a.id] = result
     }))
   } finally {
-    loading.value = false
+    if (loadToken === assignmentLoadToken) loading.value = false
   }
 }
 async function loadCourses() { courses.value = await listCourses() }

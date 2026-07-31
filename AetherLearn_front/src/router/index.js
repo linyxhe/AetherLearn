@@ -27,6 +27,7 @@ const routes = [
       { path: 'notice', name: 'Notice', component: () => import('../views/Notice.vue'), meta: { title: '课程公告', roles: [ROLE.TEACHER, ROLE.STUDENT] } },
       { path: 'knowledge-graph', name: 'KnowledgeGraph', component: () => import('../views/KnowledgeGraph.vue'), meta: { title: '知识点图谱', roles: [ROLE.TEACHER, ROLE.STUDENT] } },
       { path: 'my-course', name: 'MyCourse', component: () => import('../views/MyCourse.vue'), meta: { title: '我的课程', roles: [ROLE.STUDENT] } },
+      { path: 'my-notes', name: 'MyNotes', component: () => import('../views/MyNotes.vue'), meta: { title: '我的笔记', roles: [ROLE.STUDENT] } },
       { path: 'my-homework', name: 'MyHomework', component: () => import('../views/MyHomework.vue'), meta: { title: '我的作业', roles: [ROLE.STUDENT] } },
       { path: 'wrong-book', name: 'WrongBook', component: () => import('../views/WrongBook.vue'), meta: { title: '错题本', roles: [ROLE.STUDENT] } },
       { path: 'todo', name: 'Todo', component: () => import('../views/Todo.vue'), meta: { title: '学习计划', roles: [ROLE.STUDENT] } },

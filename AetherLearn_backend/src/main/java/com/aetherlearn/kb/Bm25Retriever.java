@@ -29,7 +29,7 @@ public class Bm25Retriever {
     /** BM25 参数：文档长度归一化 */
     private static final double B = 0.75;
     /** BM25 最低分数阈值：低于此分数的切片视为不相关，丢弃不传给 LLM */
-    private static final double MIN_SCORE = 2.0;
+    private static final double MIN_SCORE = 0.0;
 
     /** L9 全文索引预筛选阈值：切片数超过此值时启用全文索引 */
     private static final int FULLTEXT_THRESHOLD = 200;

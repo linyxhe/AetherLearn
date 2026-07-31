@@ -1,79 +1,116 @@
 package com.aetherlearn.ai;
 
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
-import lombok.Getter;
+import com.aetherlearn.service.SysConfigService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-
-import jakarta.annotation.PostConstruct;
-import java.time.Duration;
+import org.springframework.stereotype.Component;
 
 /**
- * AI 业务配置（F-QA / AI 模块）
- * <p>大模型调用已迁移到 LangChain4j 框架，API Key / base-url / model 等由
- * {@code langchain4j.open-ai.chat-model.*} 统一管理。</p>
- * <p>本类仅保留业务层配置：是否启用、RAG 检索参数等，以及手动注入 StreamingChatModel。</p>
+ * AI 动态配置读取器。
+ * <p>管理员在系统配置页保存的 {@code sys_config} 值优先于 application.yml，
+ * 因此模型、接口地址与 API Key 无需重启服务即可生效。</p>
  */
 @Slf4j
-@Configuration
-@Getter
+@Component
 public class AiConfig {
 
-    /** 是否启用大模型（application.yml 的 ai.enabled） */
+    private final SysConfigService sysConfigService;
+
+    /** application.yml 中的兜底开关。 */
     @Value("${ai.enabled:true}")
-    private boolean enabled;
+    private boolean defaultEnabled;
 
+    /** application.yml 中的兜底接口地址。 */
     @Value("${langchain4j.open-ai.chat-model.base-url:}")
-    private String baseUrl;
+    private String defaultBaseUrl;
 
+    /** application.yml 中的兜底 API Key。 */
     @Value("${langchain4j.open-ai.chat-model.api-key:}")
-    private String apiKey;
+    private String defaultApiKey;
 
+    /** application.yml 中的兜底模型名称。 */
     @Value("${langchain4j.open-ai.chat-model.model-name:}")
-    private String modelName;
+    private String defaultModelName;
 
+    /** application.yml 中的兜底温度。 */
     @Value("${langchain4j.open-ai.chat-model.temperature:0.3}")
-    private double temperature;
+    private double defaultTemperature;
 
-    @PostConstruct
-    public void init() {
-        log.info("[AI] 配置加载: enabled={}, baseUrl={}, modelName={}, apiKey={}",
-                enabled, baseUrl, modelName,
-                apiKey != null && !apiKey.isBlank() ? "***已配置***" : "***未配置***");
-        if (enabled) {
-            log.info("[AI] 大模型已启用（LangChain4j 管理连接，配置见 langchain4j.open-ai.chat-model.*）");
-        } else {
-            log.warn("[AI] 已在配置中关闭（ai.enabled=false），将走本地检索降级。");
-        }
-    }
-
-    /** AI 是否真正可用：必须启用且配置 base-url / api-key / model。 */
-    public boolean isAvailable() {
-        return enabled
-                && baseUrl != null && !baseUrl.isBlank()
-                && apiKey != null && !apiKey.isBlank()
-                && modelName != null && !modelName.isBlank();
+    public AiConfig(SysConfigService sysConfigService) {
+        this.sysConfigService = sysConfigService;
     }
 
     /**
-     * 手动注入流式模型（LangChain4j beta 版自动配置可能不注入 StreamingChatModel）
+     * 获取当前实时配置快照。
+     *
+     * @return 可直接用于创建模型客户端的配置
      */
-    @Bean
-    public StreamingChatModel streamingChatModel() {
-        if (baseUrl == null || baseUrl.isBlank() || apiKey == null || apiKey.isBlank()) {
-            log.warn("[AI] 缺少 base-url 或 api-key，无法创建 StreamingChatModel");
+    public Settings current() {
+        String enabledValue = databaseValue("ai.enabled");
+        boolean enabled = enabledValue == null || enabledValue.isBlank()
+                ? defaultEnabled : Boolean.parseBoolean(enabledValue);
+        String baseUrl = valueOrDefault("ai.api.url", defaultBaseUrl);
+        String apiKey = valueOrDefault("ai.api.key", defaultApiKey);
+        String modelName = valueOrDefault("ai.model", defaultModelName);
+        return new Settings(enabled, trim(baseUrl), trim(apiKey), trim(modelName), defaultTemperature);
+    }
+
+    /**
+     * 判断 AI 是否具备调用条件。
+     *
+     * @return true 表示已启用且必填配置完整
+     */
+    public boolean isAvailable() {
+        return current().available();
+    }
+
+    /** 读取数据库配置；数据库临时不可用时退回启动配置，保证非 AI 功能可运行。 */
+    private String databaseValue(String key) {
+        try {
+            return sysConfigService.getValueByKey(key);
+        } catch (RuntimeException ex) {
+            log.warn("[AI] 读取动态配置 {} 失败，使用 application.yml 兜底：{}", key, ex.getMessage());
             return null;
         }
-        log.info("[AI] 手动创建 StreamingChatModel: baseUrl={}, model={}, temperature={}", baseUrl, modelName, temperature);
-        return OpenAiStreamingChatModel.builder()
-                .baseUrl(baseUrl)
-                .apiKey(apiKey)
-                .modelName(modelName)
-                .temperature(temperature)
-                .timeout(Duration.ofSeconds(120))
-                .build();
+    }
+
+    /** 数据库值为空时使用 application.yml 的默认值。 */
+    private String valueOrDefault(String key, String defaultValue) {
+        String value = databaseValue(key);
+        return value == null || value.isBlank() ? defaultValue : value;
+    }
+
+    /** 统一清理配置首尾空格。 */
+    private String trim(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    /**
+     * AI 配置快照。
+     *
+     * @param enabled 是否启用
+     * @param baseUrl OpenAI 兼容接口地址
+     * @param apiKey API Key
+     * @param modelName 模型名称
+     * @param temperature 生成温度
+     */
+    public record Settings(boolean enabled,
+                           String baseUrl,
+                           String apiKey,
+                           String modelName,
+                           double temperature) {
+
+        /** 配置是否完整可用。 */
+        public boolean available() {
+            return enabled
+                    && baseUrl != null && !baseUrl.isBlank()
+                    && apiKey != null && !apiKey.isBlank()
+                    && modelName != null && !modelName.isBlank();
+        }
+
+        /** 用于判断模型客户端是否需要重建。 */
+        public String signature() {
+            return enabled + "\n" + baseUrl + "\n" + apiKey + "\n" + modelName + "\n" + temperature;
+        }
     }
 }

@@ -98,10 +98,16 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         try {
             // 3) 先解析为纯文本（必须在 transferTo 之前，避免移动临时文件后无法再读流）
             String text = documentParser.parse(file, fileType);
+            if (text == null || text.isBlank()) {
+                throw new BusinessException(400, "文件未提取到可检索文本，请上传可复制文字的 PDF、DOCX、Markdown 或 TXT 文件");
+            }
             // 4) 保存原始文件到磁盘
             file.transferTo(target);
             // 5) 切片（重叠约 20%）
             List<String> chunks = textChunker.split(text, chunkSize, (int) (chunkSize * 0.2));
+            if (chunks.isEmpty()) {
+                throw new BusinessException(400, "文件未生成可检索切片，请检查文件内容后重新上传");
+            }
             int seq = 0;
             for (String c : chunks) {
                 KnowledgeChunk kc = new KnowledgeChunk();
@@ -118,6 +124,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             docMapper.updateById(doc);
             log.info("[KB] 文档解析完成：docId={}, 切片数={}", doc.getId(), chunks.size());
             return doc;
+        } catch (BusinessException e) {
+            // 业务校验错误直接返回给前端，避免被包装成笼统的“解析失败”。
+            throw e;
         } catch (Exception e) {
             // 解析失败：标记文档状态为失败，不阻断事务（doc 记录保留以便排查）
             doc.setStatus(2); // 2-失败

@@ -72,6 +72,11 @@ public interface CourseService {
     void deleteChapter(Long chapterId);
 
     /**
+     * 删除章节已上传的资源文件，并清空章节的资源地址。
+     */
+    void deleteChapterResource(Long chapterId);
+
+    /**
      * 学生完成章节学习，并写入学习行为记录。
      */
     void completeChapter(Long chapterId, Long studentId);

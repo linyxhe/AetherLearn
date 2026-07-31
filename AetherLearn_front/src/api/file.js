@@ -6,9 +6,7 @@ export function uploadFile(file, bizType) {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('bizType', bizType)
-  return request.post('/file/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  })
+  return request.post('/file/upload', formData)
 }
 
 // 解析已上传文件为文本（用于课程章节资料解析）

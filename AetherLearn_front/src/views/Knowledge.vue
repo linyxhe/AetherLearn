@@ -44,9 +44,10 @@
       <n-card :bordered="false" class="panel">
         <div class="panel-title">上传课程资料</div>
         <n-upload
-          :default-upload="false"
+          ref="uploadRef"
           :show-file-list="false"
           :max="1"
+          :disabled="uploading"
           :custom-request="customUpload"
           :before-upload="beforeUpload"
           accept=".pdf,.docx,.md,.txt"
@@ -55,7 +56,11 @@
           <n-upload-dragger>
             <div class="upload-box">
               <div class="upload-title">拖拽课程资料到这里，或点击上传</div>
-              <div class="upload-sub">支持 PDF / Word(.docx) / Markdown / TXT，单文件 ≤ 20MB。</div>
+              <template v-if="uploading">
+                <n-progress type="line" :percentage="uploadProgress" :show-indicator="true" :height="8" processing />
+                <div class="upload-sub">{{ uploadStage }}</div>
+              </template>
+              <div v-else class="upload-sub">支持 PDF / Word(.docx) / Markdown / TXT，单文件 ≤ 20MB。</div>
             </div>
           </n-upload-dragger>
         </n-upload>
@@ -103,7 +108,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { NAlert, NButton, NCard, NEmpty, NInput, NPagination, NSpace, NSelect, NTable, NTag, NUpload, NUploadDragger, createDiscreteApi } from 'naive-ui'
+import { NAlert, NButton, NCard, NEmpty, NInput, NPagination, NProgress, NSpace, NSelect, NTable, NTag, NUpload, NUploadDragger, createDiscreteApi } from 'naive-ui'
 import { listCourses } from '../api/course'
 import { uploadKnowledge, listKnowledge, deleteKnowledge, searchKnowledge } from '../api/knowledge'
 
@@ -118,6 +123,10 @@ const searchQuery = ref('')
 const searchResults = ref([])
 const searchLoading = ref(false)
 const showSearchResults = ref(false)
+const uploadRef = ref(null)
+const uploading = ref(false)
+const uploadProgress = ref(0)
+const uploadStage = ref('正在上传文件…')
 
 const courseOptions = computed(() => courses.value.map((c) => ({ label: c.courseName, value: c.id })))
 const selectedCourseName = computed(() => courses.value.find((c) => c.id === selectedCourse.value)?.courseName || '')
@@ -175,13 +184,27 @@ function beforeUpload({ file }) {
   return true
 }
 async function customUpload({ file, onError, onFinish }) {
+  uploading.value = true
+  uploadProgress.value = 0
+  uploadStage.value = '正在上传文件…'
   try {
-    const data = await uploadKnowledge(selectedCourse.value, file.file)
-    message.success(`上传成功，已解析 ${data?.chunkCount ?? 0} 个切片`)
+    const data = await uploadKnowledge(selectedCourse.value, file.file, (percentage) => {
+      uploadProgress.value = percentage
+      if (percentage >= 100) {
+        uploadStage.value = '文件已上传，正在解析并建立可检索切片…'
+      }
+    })
+    uploadProgress.value = 100
+    message.success(`上传成功，已生成 ${data?.chunkCount ?? 0} 个可检索切片，可供智能问答调用`)
     onFinish()
+    uploadRef.value?.clear()
     loadDocs()
   } catch (e) {
     onError?.(e)
+    uploadRef.value?.clear()
+  } finally {
+    uploading.value = false
+    uploadProgress.value = 0
   }
 }
 function onDownload(row) {

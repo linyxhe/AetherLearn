@@ -32,7 +32,7 @@ const props = defineProps({
   bizType: { type: String, required: true },
   accept: { type: String, default: '' }
 })
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'upload-success'])
 
 const isImage = computed(() => /\.(png|jpe?g|gif|webp)$/i.test(props.modelValue || ''))
 
@@ -46,6 +46,7 @@ async function customUpload({ file }) {
   try {
     const data = await uploadFile(file, props.bizType)
     emit('update:modelValue', data.url)
+    emit('upload-success', data.url)
     ElMessage.success('上传成功')
   } catch (e) {
     // 错误由拦截器提示

@@ -24,9 +24,9 @@ public interface UserService {
     // ============ 管理员用户管理（F-AUTH-03） ============
 
     /**
-     * 分页查询用户列表（支持按用户名/姓名关键字、角色筛选）
+     * 分页查询用户列表（支持关键字、角色筛选及安全字段排序）
      */
-    Page<SysUser> listUsers(int page, int size, String keyword, Integer role);
+    Page<SysUser> listUsers(int page, int size, String keyword, Integer role, String sortBy, String sortOrder);
 
     /**
      * 查询用户详情

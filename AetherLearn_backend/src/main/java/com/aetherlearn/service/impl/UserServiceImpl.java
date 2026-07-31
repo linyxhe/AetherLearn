@@ -77,6 +77,7 @@ public class UserServiceImpl implements UserService {
             }
             user.setPassword(SecureUtil.md5(request.getPassword()));
         }
+        user.setUpdateTime(LocalDateTime.now());
         sysUserMapper.updateById(user);
         return toProfile(user);
     }
@@ -84,7 +85,8 @@ public class UserServiceImpl implements UserService {
     // ============ 管理员用户管理（F-AUTH-03） ============
 
     @Override
-    public Page<SysUser> listUsers(int page, int size, String keyword, Integer role) {
+    public Page<SysUser> listUsers(int page, int size, String keyword, Integer role,
+                                   String sortBy, String sortOrder) {
         LambdaQueryWrapper<SysUser> wrapper = new LambdaQueryWrapper<>();
         // 关键字搜索（用户名或姓名）
         if (keyword != null && !keyword.isBlank()) {
@@ -98,7 +100,17 @@ public class UserServiceImpl implements UserService {
         if (role != null) {
             wrapper.eq(SysUser::getRole, role);
         }
-        wrapper.orderByDesc(SysUser::getCreateTime);
+        // 仅允许预定义字段参与排序，避免将前端参数直接拼接进 SQL。
+        boolean ascending = "asc".equalsIgnoreCase(sortOrder);
+        switch (sortBy == null ? "createTime" : sortBy) {
+            case "username" -> wrapper.orderBy(true, ascending, SysUser::getUsername);
+            case "realName" -> wrapper.orderBy(true, ascending, SysUser::getRealName);
+            case "role" -> wrapper.orderBy(true, ascending, SysUser::getRole);
+            case "status" -> wrapper.orderBy(true, ascending, SysUser::getStatus);
+            case "createTime" -> wrapper.orderBy(true, ascending, SysUser::getCreateTime);
+            default -> wrapper.orderByDesc(SysUser::getCreateTime);
+        }
+        wrapper.orderByDesc(SysUser::getId);
         return sysUserMapper.selectPage(new Page<>(page, size), wrapper);
     }
 

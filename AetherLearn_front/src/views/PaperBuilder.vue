@@ -16,11 +16,13 @@
     <n-card :bordered="false" class="panel controls">
       <n-space wrap align="center">
         <n-select v-model:value="courseId" :options="courseOptions" clearable placeholder="选择课程" class="filter-select" @update:value="loadAssignments" />
-        <n-select v-model:value="assignmentId" :options="assignmentOptions" clearable placeholder="选择作业" class="filter-select" />
+        <n-select v-model:value="assignmentId" :options="assignmentOptions" clearable placeholder="选择作业" class="filter-select" @update:value="loadPaperQuestions" />
         <n-select v-model:value="questionType" :options="typeOptions" class="filter-select" />
         <n-input-number v-model:value="count" :min="1" :max="20" />
         <n-button type="primary" :loading="generating" @click="generate">生成题目</n-button>
+        <n-button secondary :disabled="!generated.length" @click="exportPaper">导出试卷</n-button>
       </n-space>
+      <div class="workflow-hint">生成的题目会直接写入所选作业；学生可在线作答，教师也可在此导出不含答案的 Word 试卷。</div>
     </n-card>
 
     <n-grid :cols="4" :x-gap="16" :y-gap="16" responsive="screen">
@@ -47,10 +49,16 @@
             <span>分值：{{ item.score || 5 }}</span>
             <span>知识点：{{ item.knowledgePoint || '未命名' }}</span>
           </div>
+          <div v-if="item.options?.length" class="option-list">
+            <div v-for="(option, index) in item.options" :key="index" class="option-item">
+              <span class="option-key">{{ optionLetter(index) }}</span>
+              <span>{{ option }}</span>
+            </div>
+          </div>
           <div class="result-analysis">{{ item.analysis || '暂无解析' }}</div>
         </n-card>
       </div>
-      <n-empty v-else description="还没有生成题目，先点一次生成题目吧" />
+      <n-empty v-else description="选择作业后可查看已入卷题目，或生成新的题目" />
     </n-spin>
   </div>
 </template>
@@ -59,7 +67,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { NButton, NCard, NEmpty, NGrid, NGridItem, NInputNumber, NSelect, NSpace, NSpin, NTag } from 'naive-ui'
 import { listCourses } from '../api/course'
-import { autoGenerateQuestions, listAssignments } from '../api/homework'
+import { autoGenerateQuestions, getAssignmentDetail, listAssignments } from '../api/homework'
 
 const loading = ref(false)
 const generating = ref(false)
@@ -105,6 +113,17 @@ async function loadAssignments() {
   if (!assignments.value.some((a) => a.id === assignmentId.value)) {
     assignmentId.value = assignments.value[0]?.id || null
   }
+  await loadPaperQuestions()
+}
+
+/** 读取所选作业的全部题目，使组卷结果可重复查看和导出。 */
+async function loadPaperQuestions() {
+  if (!assignmentId.value) {
+    generated.value = []
+    return
+  }
+  const detail = await getAssignmentDetail(assignmentId.value)
+  generated.value = detail.questions || []
 }
 
 async function generate() {
@@ -113,10 +132,42 @@ async function generate() {
   }
   generating.value = true
   try {
-    generated.value = await autoGenerateQuestions(assignmentId.value, courseId.value, count.value, questionType.value)
+    await autoGenerateQuestions(assignmentId.value, courseId.value, count.value, questionType.value)
+    await loadPaperQuestions()
   } finally {
     generating.value = false
   }
+}
+
+/** 返回题目选项的字母编号。 */
+function optionLetter(index) {
+  return String.fromCharCode(65 + index)
+}
+
+/** 将当前作业题目导出为可用 Microsoft Word 打开的试卷文件，不包含标准答案。 */
+function exportPaper() {
+  const assignment = assignments.value.find((item) => item.id === assignmentId.value)
+  if (!assignment || !generated.value.length) return
+  const safeText = (value) => String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  const questionHtml = generated.value.map((item, index) => {
+    const options = (item.options || []).map((option, optionIndex) =>
+      `<p class="option">${optionLetter(optionIndex)}. ${safeText(option)}</p>`
+    ).join('')
+    return `<section class="question"><p><strong>${index + 1}. ${safeText(item.content)}</strong>（${item.score || 5} 分）</p>${options}<p class="answer-line">答：____________________________________________________________</p></section>`
+  }).join('')
+  const totalScore = assignment.totalScore || generated.value.reduce((total, item) => total + (item.score || 0), 0)
+  const courseName = courseOptions.value.find((item) => item.value === courseId.value)?.label || ''
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${safeText(assignment.title)}</title><style>body{font-family:"Microsoft YaHei",sans-serif;color:#111;line-height:1.8;margin:36px}.title{text-align:center;font-size:22px;font-weight:700}.meta{margin:18px 0 24px;border-bottom:1px solid #999;padding-bottom:10px}.question{page-break-inside:avoid;margin:16px 0}.option{margin:4px 0 4px 24px}.answer-line{margin-top:12px;color:#333}</style></head><body><div class="title">${safeText(assignment.title)}</div><div class="meta">课程：${safeText(courseName)}　　总分：${totalScore} 分</div>${questionHtml}</body></html>`
+  const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${assignment.title}-试卷.doc`
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 function typeLabel(type) {
@@ -138,6 +189,7 @@ function typeLabel(type) {
 .hero-card-sub { color: #5f6b73; font-size: 13px; }
 .panel { background: rgba(255,255,255,0.9); }
 .controls { padding: 16px; }
+.workflow-hint { margin-top: 12px; padding: 10px 12px; border-left: 3px solid #42b5bb; border-radius: 0 10px 10px 0; background: #f4fbfb; color: #52656c; font-size: 13px; line-height: 1.6; }
 .filter-select { width: 220px; }
 .stat-card { background: #fff; padding: 18px 20px; }
 .stat-value { font-size: 28px; font-weight: 700; color: #18323d; }
@@ -147,9 +199,13 @@ function typeLabel(type) {
 .result-top { display: flex; justify-content: space-between; gap: 16px; }
 .result-title { margin-top: 10px; font-size: 18px; font-weight: 700; color: #18323d; line-height: 1.7; }
 .result-meta { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; color: #6b7280; font-size: 13px; }
+.option-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; margin-top: 14px; padding: 13px 15px; border-radius: 12px; background: #f6fbfb; color: #334155; }
+.option-item { display: flex; gap: 8px; line-height: 1.6; }
+.option-key { color: #2f7f86; font-weight: 700; }
 .result-analysis { margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf4f4; color: #5f6b73; line-height: 1.7; }
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; }
   .filter-select { width: 100%; }
+  .option-list { grid-template-columns: 1fr; }
 }
 </style>

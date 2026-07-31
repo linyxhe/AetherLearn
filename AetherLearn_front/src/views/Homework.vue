@@ -16,7 +16,8 @@
     <n-card :bordered="false" class="control-card">
       <n-space align="center" justify="space-between" wrap>
         <n-space>
-          <n-select v-model:value="selectedCourse" :options="courseOptions" placeholder="全部课程" clearable style="min-width: 240px" @update:value="loadAssignments" />
+          <n-select v-model:value="selectedCourse" :options="courseOptions" placeholder="全部课程" clearable style="min-width: 240px" @update:value="onCourseFilterChange" />
+          <n-button secondary :loading="loading" @click="refreshAssignments">刷新</n-button>
           <n-button type="primary" @click="openAssignmentCreate">新建作业</n-button>
         </n-space>
         <n-tag type="info" round>教学工作流</n-tag>
@@ -49,7 +50,7 @@
             <td>{{ row.title }}</td>
             <td><n-tag :type="row.type === 2 ? 'warning' : 'info'" round>{{ row.type === 2 ? '测验' : '作业' }}</n-tag></td>
             <td>{{ row.totalScore }}</td>
-            <td>{{ row.endTime || '—' }}</td>
+            <td>{{ formatDisplayDate(row.endTime) || '—' }}</td>
             <td><n-tag :type="row.status === 1 ? 'success' : 'default'" round>{{ row.status === 1 ? '进行中' : '已结束' }}</n-tag></td>
             <td>
               <n-space>
@@ -63,8 +64,19 @@
         </tbody>
       </n-table>
       <n-empty v-if="!loading && assignments.length === 0" description="还没有作业，点击右上角新建第一份" />
-      <div v-if="assignments.length > pageSize" class="pagination-wrap">
-        <n-pagination v-model:page="currentPage" :page-size="pageSize" :item-count="assignments.length" />
+      <div v-if="assignments.length" class="pagination-wrap">
+        <span class="pagination-summary">共 {{ assignments.length }} 条</span>
+        <n-pagination
+          v-model:page="currentPage"
+          v-model:page-size="pageSize"
+          :item-count="assignments.length"
+          :page-sizes="pageSizeOptions"
+          :page-slot="5"
+          show-quick-jumper
+          show-size-picker
+          @update:page="onPageChange"
+          @update:page-size="onPageSizeChange"
+        />
       </div>
     </n-card>
 
@@ -238,7 +250,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { NButton, NCard, NCheckbox, NCheckboxGroup, NEmpty, NForm, NFormItem, NGrid, NGridItem, NInput, NInputNumber, NModal, NPagination, NRadio, NRadioGroup, NSpace, NSelect, NTable, NTag, createDiscreteApi } from 'naive-ui'
+import { NButton, NCard, NCheckbox, NCheckboxGroup, NDatePicker, NEmpty, NForm, NFormItem, NGrid, NGridItem, NInput, NInputNumber, NModal, NPagination, NRadio, NRadioGroup, NSpace, NSelect, NTable, NTag, createDiscreteApi } from 'naive-ui'
 import { listCourses } from '../api/course'
 import { listAssignments as fetchAssignments, saveAssignment, deleteAssignment, getAssignmentDetail, saveQuestion, deleteQuestion, getAnswerResult, getSubmissions, reviewAnswer, autoGenerateQuestions } from '../api/homework'
 import DOMPurify from 'dompurify'
@@ -249,8 +261,13 @@ const selectedCourse = ref(null)
 const assignments = ref([])
 const loading = ref(false)
 const currentPage = ref(1)
-const pageSize = 10
-const pagedAssignments = computed(() => assignments.value.slice((currentPage.value - 1) * pageSize, currentPage.value * pageSize))
+const pageSize = ref(10)
+const pageSizeOptions = [10, 20, 50]
+const pageCount = computed(() => Math.max(1, Math.ceil(assignments.value.length / pageSize.value)))
+const pagedAssignments = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return assignments.value.slice(start, start + pageSize.value)
+})
 const questionTypes = [{ value: 1, label: '单选' }, { value: 2, label: '多选' }, { value: 3, label: '判断' }, { value: 4, label: '填空' }, { value: 5, label: '简答' }]
 const questionTypeOptions = questionTypes
 const typeLabel = (t) => questionTypes.find((x) => x.value === t)?.label || '未知'
@@ -303,12 +320,31 @@ async function onSaveAssignment() {
   if (!asmForm.title) return message.warning('请填写标题')
   asmSaving.value = true
   try {
-    const payload = { ...asmForm, startTime: timeRange.value?.[0] || null, endTime: timeRange.value?.[1] || null }
+    const payload = {
+      ...asmForm,
+      startTime: formatDateTime(timeRange.value?.[0]),
+      endTime: formatDateTime(timeRange.value?.[1])
+    }
     await saveAssignment(payload)
     message.success('保存成功')
     asmVisible.value = false
-    await loadAssignments()
+    await loadAssignments({ resetPage: !asmIsEdit.value })
   } finally { asmSaving.value = false }
+}
+
+/** 将日期选择器的毫秒时间戳转换为后端约定的本地日期时间字符串。 */
+function formatDateTime(timestamp) {
+  if (!timestamp) return null
+  const date = new Date(timestamp)
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+/** 统一格式化列表接口返回的日期，兼容 ISO 与数据库日期字符串。 */
+function formatDisplayDate(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? String(value).replace('T', ' ') : formatDateTime(date.getTime())
 }
 async function onDeleteAssignment(row) {
   const ok = await dialog.warning({ title: '提示', content: `确定删除作业「${row.title}」吗？`, positiveText: '确定', negativeText: '取消' })
@@ -379,7 +415,44 @@ async function saveReview() {
     currentResult.value = null
   } finally { rvSaving.value = false }
 }
-async function loadAssignments() { loading.value = true; try { assignments.value = await fetchAssignments(selectedCourse.value) } finally { loading.value = false } }
+/** 根据当前列表数据将页码限制在有效范围内，避免删除末页数据后出现空白页。 */
+function normalizeCurrentPage() {
+  currentPage.value = Math.min(Math.max(currentPage.value, 1), pageCount.value)
+}
+
+/** 切换课程筛选时回到第一页，并重新加载对应作业列表。 */
+function onCourseFilterChange() {
+  currentPage.value = 1
+  loadAssignments()
+}
+
+/** 保留当前页刷新列表；若数据量变化则自动校正至有效页码。 */
+function refreshAssignments() {
+  loadAssignments()
+}
+
+/** 用户切换页码时同步保存当前页。 */
+function onPageChange(page) {
+  currentPage.value = page
+}
+
+/** 用户调整每页条数时返回第一页，确保浏览位置清晰可预期。 */
+function onPageSizeChange(size) {
+  pageSize.value = size
+  currentPage.value = 1
+}
+
+/** 加载作业列表，并在筛选、保存、删除或刷新后维护有效页码。 */
+async function loadAssignments({ resetPage = false } = {}) {
+  if (resetPage) currentPage.value = 1
+  loading.value = true
+  try {
+    assignments.value = await fetchAssignments(selectedCourse.value)
+    normalizeCurrentPage()
+  } finally {
+    loading.value = false
+  }
+}
 async function loadCourses() { courses.value = await listCourses() }
 onMounted(() => { loadCourses(); loadAssignments() })
 </script>
@@ -399,7 +472,8 @@ onMounted(() => { loadCourses(); loadAssignments() })
 .stat-value { font-size: 30px; font-weight: 700; color: #18323d; }
 .stat-label { color: #6b7280; margin-top: 6px; font-size: 13px; }
 .panel { background: rgba(255,255,255,0.9); padding: 6px; }
-.pagination-wrap { display: flex; justify-content: flex-end; padding-top: 16px; }
+.pagination-wrap { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; padding: 16px 6px 4px; }
+.pagination-summary { color: #6b7280; font-size: 13px; white-space: nowrap; }
 .muted { color: #6b7280; }
 .qm-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .opt-list { width: 100%; display: flex; flex-direction: column; gap: 8px; }
@@ -423,4 +497,9 @@ onMounted(() => { loadCourses(); loadAssignments() })
 .work-modal { width: min(900px, calc(100vw - 24px)); }
 .mini-modal { width: min(420px, calc(100vw - 24px)); }
 @media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
+@media (max-width: 640px) {
+  .pagination-wrap { justify-content: center; }
+  .pagination-summary { width: 100%; text-align: center; }
+  .pagination-wrap :deep(.n-pagination) { justify-content: center; }
+}
 </style>

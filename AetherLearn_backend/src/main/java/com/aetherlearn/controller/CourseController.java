@@ -135,6 +135,16 @@ public class CourseController {
     }
 
     /**
+     * 删除章节已上传的资源文件（仅教师/管理员）。
+     */
+    @PreAuthorize("hasRole('TEACHER')")
+    @DeleteMapping("/chapters/{chapterId}/resource")
+    public Result<Void> deleteChapterResource(@PathVariable Long chapterId) {
+        courseService.deleteChapterResource(chapterId);
+        return Result.success();
+    }
+
+    /**
      * 学生完成章节学习，写入学习进度。
      */
     @PreAuthorize("hasRole('STUDENT')")

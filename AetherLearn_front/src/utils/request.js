@@ -46,7 +46,7 @@ request.interceptors.response.use(
         router.push('/login')
       }
     } else if (status === 403) {
-      ElMessage.error('权限不足，无法访问')
+      ElMessage.error(data?.message || '权限不足，无法访问')
     } else {
       ElMessage.error(data?.message || error.message || '网络错误')
     }

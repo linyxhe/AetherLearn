@@ -7,7 +7,7 @@
         <p>课程作为中心节点，题目里出现的知识点围绕展开，节点大小代表覆盖次数，适合复习和教学结构检查。</p>
       </div>
       <n-card class="hero-card" :bordered="false">
-        <div class="hero-card-title">图谱规模</div>
+        <div class="hero-card-title">{{ selectedCourseName || '当前课程' }}</div>
         <div class="hero-card-value">{{ graph.nodes?.length || 0 }}</div>
         <div class="hero-card-sub">个节点</div>
       </n-card>
@@ -15,8 +15,16 @@
 
     <n-card :bordered="false" class="panel filters">
       <n-space wrap align="center">
-        <n-select v-model:value="courseId" :options="courseOptions" clearable placeholder="按课程筛选" class="filter-select" @update:value="loadGraph" />
-        <n-button secondary @click="loadGraph">刷新图谱</n-button>
+        <span class="filter-label">当前课程</span>
+        <n-select
+          v-model:value="courseId"
+          :options="courseOptions"
+          placeholder="请选择课程"
+          class="filter-select"
+          @update:value="loadGraph"
+        />
+        <n-button secondary :disabled="!courseId" @click="loadGraph">刷新图谱</n-button>
+        <span class="filter-hint">不同课程的知识点独立展示，不会混入其他课程数据。</span>
       </n-space>
     </n-card>
 
@@ -41,31 +49,46 @@ const graph = ref({ nodes: [], edges: [] })
 const courseId = ref(null)
 const chartEl = ref(null)
 let chart = null
+let latestRequestId = 0
 
 const courseOptions = computed(() => courses.value.map((course) => ({ label: course.courseName, value: course.id })))
+const selectedCourseName = computed(() => courses.value.find((course) => course.id === courseId.value)?.courseName || '')
 
 onMounted(async () => {
   courses.value = await listCourses()
+  courseId.value = courses.value[0]?.id || null
   await loadGraph()
 })
 onBeforeUnmount(() => disposeChart(chart))
 
 async function loadGraph() {
+  const requestId = ++latestRequestId
+  if (!courseId.value) {
+    graph.value = { nodes: [], edges: [] }
+    await nextTick()
+    if (requestId === latestRequestId) renderGraph('请先选择课程')
+    return
+  }
   loading.value = true
   try {
-    graph.value = await getKnowledgeGraph(courseId.value)
+    const data = await getKnowledgeGraph(courseId.value)
+    // 用户连续切换课程时，较早请求的响应不能覆盖当前课程图谱。
+    if (requestId !== latestRequestId) return
+    graph.value = data || { nodes: [], edges: [] }
     await nextTick()
     renderGraph()
   } finally {
-    loading.value = false
+    if (requestId === latestRequestId) loading.value = false
   }
 }
 
-function renderGraph() {
-  chart = initChart(chartEl.value)
+function renderGraph(emptyText = '当前课程暂无知识点数据') {
+  if (!chart) chart = initChart(chartEl.value)
+  // ECharts 默认会合并 setOption；先清空才能保证空课程不会保留上一门课程的节点。
+  chart.clear()
   const nodes = graph.value.nodes || []
   const edges = graph.value.edges || []
-  if (!nodes.length) return applyOption(chart, emptyGraphic('暂无知识点数据'))
+  if (!nodes.length) return applyOption(chart, emptyGraphic(emptyText))
   applyOption(chart, {
     tooltip: {
       formatter: (params) => params.dataType === 'edge' ? params.data.label : `${params.data.name}<br/>覆盖次数：${params.data.value}`
@@ -105,7 +128,9 @@ function renderGraph() {
 .hero-card-value { font-size: 30px; font-weight: 700; color: #18323d; margin-bottom: 6px; }
 .hero-card-sub { color: #5f6b73; font-size: 13px; }
 .filters { background: rgba(255,255,255,0.9); padding: 16px; }
-.filter-select { width: 220px; }
+.filter-label { color: #18323d; font-size: 13px; font-weight: 700; }
+.filter-select { width: 260px; }
+.filter-hint { color: #6b7280; font-size: 12px; }
 .graph-card { background: #fff; }
 .chart { width: 100%; height: 620px; }
 @media (max-width: 900px) {

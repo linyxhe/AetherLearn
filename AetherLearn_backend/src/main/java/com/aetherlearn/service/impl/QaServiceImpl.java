@@ -2,6 +2,7 @@ package com.aetherlearn.service.impl;
 
 import com.aetherlearn.ai.AiConfig;
 import com.aetherlearn.ai.LlmClient;
+import com.aetherlearn.common.BusinessException;
 import com.aetherlearn.dto.QaAnswer;
 import com.aetherlearn.dto.QaAskRequest;
 import com.aetherlearn.dto.QaHistoryVO;
@@ -12,6 +13,7 @@ import com.aetherlearn.entity.QaRecord;
 import com.aetherlearn.kb.Bm25Retriever;
 import com.aetherlearn.mapper.KnowledgeChunkMapper;
 import com.aetherlearn.mapper.KnowledgeDocMapper;
+import com.aetherlearn.mapper.CourseStudentMapper;
 import com.aetherlearn.mapper.QaRecordMapper;
 import com.aetherlearn.service.QaService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -42,6 +44,7 @@ public class QaServiceImpl implements QaService {
     private final KnowledgeChunkMapper chunkMapper;
     private final KnowledgeDocMapper docMapper;
     private final QaRecordMapper qaRecordMapper;
+    private final CourseStudentMapper courseStudentMapper;
     private final Bm25Retriever retriever;
     private final AiConfig aiConfig;
     private final LlmClient llmClient;
@@ -58,10 +61,11 @@ public class QaServiceImpl implements QaService {
 
     public QaServiceImpl(KnowledgeChunkMapper chunkMapper, KnowledgeDocMapper docMapper,
                          QaRecordMapper qaRecordMapper, Bm25Retriever retriever,
-                         AiConfig aiConfig, LlmClient llmClient) {
+                         AiConfig aiConfig, LlmClient llmClient, CourseStudentMapper courseStudentMapper) {
         this.chunkMapper = chunkMapper;
         this.docMapper = docMapper;
         this.qaRecordMapper = qaRecordMapper;
+        this.courseStudentMapper = courseStudentMapper;
         this.retriever = retriever;
         this.aiConfig = aiConfig;
         this.llmClient = llmClient;
@@ -72,6 +76,7 @@ public class QaServiceImpl implements QaService {
     public QaAnswer ask(Long userId, QaAskRequest request) {
         long start = System.currentTimeMillis();
         Long courseId = request.getCourseId();
+        ensureStudentCourseAccess(userId, courseId);
         String question = request.getQuestion().trim();
 
         // 1) BM25 检索相关切片（L8 记录检索耗时）
@@ -184,6 +189,7 @@ public class QaServiceImpl implements QaService {
 
     @Override
     public SseEmitter askStream(Long userId, QaAskRequest request) {
+        ensureStudentCourseAccess(userId, request.getCourseId());
         SseEmitter emitter = new SseEmitter(120_000L); // 2分钟超时
 
         SSE_POOL.execute(() -> {
@@ -328,6 +334,9 @@ public class QaServiceImpl implements QaService {
 
     @Override
     public List<QaHistoryVO> history(Long userId, Long courseId) {
+        if (courseId != null) {
+            ensureStudentCourseAccess(userId, courseId);
+        }
         LambdaQueryWrapper<QaRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(QaRecord::getUserId, userId);
         if (courseId != null) {
@@ -363,6 +372,14 @@ public class QaServiceImpl implements QaService {
             result.add(vo);
         }
         return result;
+    }
+
+    /** 校验学生仅能使用本人已加入课程的知识库。 */
+    private void ensureStudentCourseAccess(Long userId, Long courseId) {
+        if (userId == null || courseId == null
+                || courseStudentMapper.countByCourseAndStudent(courseId, userId) <= 0) {
+            throw new BusinessException(403, "请先加入该课程后再使用课程智能问答");
+        }
     }
 
     /**

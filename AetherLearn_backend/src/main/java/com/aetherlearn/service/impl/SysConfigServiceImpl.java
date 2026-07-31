@@ -55,7 +55,7 @@ public class SysConfigServiceImpl implements SysConfigService {
                 existing.setRemark(remark);
             }
             sysConfigMapper.updateById(existing);
-            log.info("[Config] 更新配置：key={}, value={}", configKey, configValue);
+            log.info("[Config] 更新配置：key={}, value={}", configKey, safeLogValue(configKey, configValue));
         } else {
             // 新增
             SysConfig config = new SysConfig();
@@ -63,7 +63,14 @@ public class SysConfigServiceImpl implements SysConfigService {
             config.setConfigValue(configValue);
             config.setRemark(remark != null ? remark : configKey);
             sysConfigMapper.insert(config);
-            log.info("[Config] 新增配置：key={}, value={}", configKey, configValue);
+            log.info("[Config] 新增配置：key={}, value={}", configKey, safeLogValue(configKey, configValue));
         }
+    }
+
+    /** 敏感配置不得以明文写入应用日志。 */
+    private String safeLogValue(String key, String value) {
+        String normalized = key == null ? "" : key.toLowerCase();
+        return normalized.contains("key") || normalized.contains("secret") || normalized.contains("password")
+                ? "***已更新***" : value;
     }
 }

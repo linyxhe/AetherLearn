@@ -1,24 +1,26 @@
 package com.aetherlearn.config;
 
+import com.baomidou.mybatisplus.annotation.DbType;
+import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * MyBatis-Plus 配置（基础支撑）
- * <p>
- * 说明：本波次（登录鉴权 / 课程 CRUD / 文件上传）暂不使用分页，故此处不注册任何插件即可跑通。
- * 后续（看板 / 列表分页）若需分页，MyBatis-Plus 3.5.9 起分页插件 {@code PaginationInnerInterceptor}
- * 已移至独立模块，需先在 pom.xml 引入：
- * <pre>
- *   &lt;dependency&gt;
- *     &lt;groupId&gt;com.baomidou&lt;/groupId&gt;
- *     &lt;artifactId&gt;mybatis-plus-jsqlparser&lt;/artifactId&gt;
- *     &lt;version&gt;3.5.9&lt;/version&gt;
- *   &lt;/dependency&gt;
- * </pre>
- * 再在此处注册 {@code new PaginationInnerInterceptor(DbType.MYSQL)} 即可。
- * </p>
+ * MyBatis-Plus 配置，统一注册分页等数据库插件。
  */
 @Configuration
 public class MybatisPlusConfig {
-    // 预留：分页等插件在此注册（见类注释说明）
+
+    /**
+     * 注册 MySQL 分页拦截器，使 {@code selectPage} 真正执行 COUNT 与 LIMIT 查询。
+     *
+     * @return MyBatis-Plus 拦截器
+     */
+    @Bean
+    public MybatisPlusInterceptor mybatisPlusInterceptor() {
+        MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
+        return interceptor;
+    }
 }

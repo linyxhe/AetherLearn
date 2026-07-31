@@ -18,7 +18,7 @@
     <div class="login-main">
       <div class="login-card aeth-card">
         <h2 class="title">欢迎登录</h2>
-        <p class="tip">请输入账号与初始口令（默认 123456）</p>
+<!--        <p class="tip">请输入账号与初始口令（默认 123456）</p>-->
         <el-form :model="form" :rules="rules" ref="formRef" @keyup.enter="handleLogin">
           <el-form-item prop="username">
             <el-input v-model="form.username" placeholder="账号" size="large" :prefix-icon="User" />
@@ -30,12 +30,12 @@
             登 录
           </el-button>
         </el-form>
-        <div class="quick">
-          <span>演示账号：</span>
-          <el-tag @click="fill('admin')" class="tag">admin</el-tag>
-          <el-tag @click="fill('teacher01')" class="tag" type="success">teacher01</el-tag>
-          <el-tag @click="fill('student01')" class="tag" type="warning">student01</el-tag>
-        </div>
+<!--        <div class="quick">-->
+<!--          <span>演示账号：</span>-->
+<!--          <el-tag @click="fill('admin')" class="tag">admin</el-tag>-->
+<!--          <el-tag @click="fill('teacher01')" class="tag" type="success">teacher01</el-tag>-->
+<!--          <el-tag @click="fill('student01')" class="tag" type="warning">student01</el-tag>-->
+<!--        </div>-->
       </div>
     </div>
   </div>

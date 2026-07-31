@@ -38,7 +38,10 @@
 
     <template v-else>
       <div class="learn-head">
-        <n-button secondary @click="activeCourse = null">返回课程列表</n-button>
+        <n-space>
+          <n-button secondary @click="activeCourse = null">返回课程列表</n-button>
+          <n-button secondary type="primary" @click="openMyNotes">我的笔记</n-button>
+        </n-space>
         <div>
           <h2>{{ activeCourse.courseName }}</h2>
           <p>{{ activeCourse.description || '按章节完成课程学习。' }}</p>
@@ -76,6 +79,7 @@
                 <h3>{{ activeChapter.title }}</h3>
               </div>
               <n-space>
+                <n-button secondary type="primary" @click="focusNoteEditor">写笔记</n-button>
                 <n-button secondary @click="toggleReaderFullscreen">
                   {{ isReaderFullscreen ? '退出阅读模式' : '全屏阅读' }}
                 </n-button>
@@ -91,6 +95,7 @@
                   <strong>{{ activeChapter.title }}</strong>
                 </div>
                 <n-space>
+                  <n-button secondary @click="focusNoteEditor">写笔记</n-button>
                   <n-button v-if="!activeChapter.completed" type="primary" secondary @click="onComplete(activeCourse, activeChapter)">完成学习</n-button>
                   <n-button type="primary" @click="toggleReaderFullscreen">退出阅读模式</n-button>
                 </n-space>
@@ -102,8 +107,12 @@
                   <div class="file-icon">{{ resourceLabel(activeChapter.resourceType) }}</div>
                   <div>
                     <b>章节资料</b>
+                    <span class="resource-name">{{ resourceFileName(activeChapter.resourceUrl) }}</span>
                     <p>浏览器可能无法直接预览 Word 或其他文件，可点击打开/下载。</p>
-                    <a :href="resolveResourceUrl(activeChapter.resourceUrl)" target="_blank">打开资源文件</a>
+                    <div class="file-actions">
+                      <a :href="resolveResourceUrl(activeChapter.resourceUrl)" target="_blank">打开资源文件</a>
+                      <a :href="resolveResourceUrl(activeChapter.resourceUrl)" :download="resourceFileName(activeChapter.resourceUrl)">下载资源文件</a>
+                    </div>
                   </div>
                 </div>
                 <div v-else class="text-resource">
@@ -113,7 +122,7 @@
 
               <div class="chapter-side">
                 <div class="chapter-text">{{ activeChapter.content || '教师暂未填写文字说明，请查看章节资源。' }}</div>
-                <div class="note-box">
+                <div ref="noteEditorRef" class="note-box note-editor">
                   <div class="note-head">
                     <div>
                       <b>我的章节笔记</b>
@@ -202,7 +211,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   createDiscreteApi,
   NButton,
@@ -224,6 +234,8 @@ import { getChapterNote, saveChapterNote } from '../api/note'
 import { listChapterQuizzes, submitChapterQuiz } from '../api/chapterQuiz'
 
 const { message } = createDiscreteApi(['message'])
+const route = useRoute()
+const router = useRouter()
 
 const courses = ref([])
 const chapterMap = reactive({})
@@ -233,6 +245,7 @@ const inviteCode = ref('')
 const activeCourse = ref(null)
 const activeChapter = ref(null)
 const isReaderFullscreen = ref(false)
+const noteEditorRef = ref(null)
 const noteSaving = ref(false)
 const noteForm = reactive({ id: null, title: '', content: '', favorite: false })
 const quizLoading = ref(false)
@@ -250,6 +263,7 @@ async function load() {
     await Promise.all(courses.value.map(async (course) => {
       chapterMap[course.id] = await listCourseChapters(course.id)
     }))
+    await openCourseFromQuery()
   } finally {
     loading.value = false
   }
@@ -282,6 +296,41 @@ async function openChapter(chapter) {
   activeChapter.value = chapter
   await loadNote()
   await loadQuiz()
+}
+
+/** 打开“我的笔记”集中回看页。 */
+function openMyNotes() {
+  router.push('/my-notes')
+}
+
+/** 将阅读区域平滑定位到当前章节的笔记编辑器。 */
+async function focusNoteEditor() {
+  await nextTick()
+  noteEditorRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+/** 从“我的笔记”携带的课程和章节参数恢复到对应学习位置。 */
+async function openCourseFromQuery() {
+  const courseId = Number(route.query.courseId)
+  const chapterId = Number(route.query.chapterId)
+  if (!Number.isFinite(courseId) || courseId <= 0) return
+
+  const course = courses.value.find((item) => item.id === courseId)
+  if (!course) {
+    message.warning('该笔记所属课程当前不可学习')
+    return
+  }
+  await enterCourse(course)
+
+  if (Number.isFinite(chapterId) && chapterId > 0) {
+    const chapter = (chapterMap[courseId] || []).find((item) => item.id === chapterId)
+    if (!chapter) {
+      message.warning('该笔记所属章节当前不可学习')
+      return
+    }
+    await openChapter(chapter)
+  }
+  await focusNoteEditor()
 }
 
 function toggleReaderFullscreen() {
@@ -403,6 +452,18 @@ function resolveResourceUrl(url) {
   return url.startsWith('/') ? url : `/${url}`
 }
 
+/** 从资源路径提取用于学生端展示和下载的文件名。 */
+function resourceFileName(url) {
+  if (!url) return '章节资料'
+  const path = String(url).split('?')[0]
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  try {
+    return decodeURIComponent(name) || '章节资料'
+  } catch (e) {
+    return name || '章节资料'
+  }
+}
+
 onMounted(load)
 onMounted(() => {
   document.addEventListener('keydown', handleReaderKeydown)
@@ -484,6 +545,8 @@ function handleReaderKeydown(event) {
 .file-icon { width: 76px; height: 76px; border-radius: 18px; background: var(--brand-glow); color: var(--brand); display: flex; align-items: center; justify-content: center; font-weight: 800; }
 .file-resource p { color: var(--text-2); }
 .file-resource a { color: var(--brand); font-weight: 700; text-decoration: none; }
+.resource-name { display: block; max-width: 420px; margin-top: 4px; color: var(--text-2); font-size: 12px; overflow-wrap: anywhere; }
+.file-actions { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; }
 .text-resource { color: var(--text-2); }
 .chapter-side { display: flex; flex-direction: column; gap: 14px; }
 .chapter-text { margin-top: 16px; padding: 16px; border-radius: 12px; background: #fff; border: 1px solid var(--border-light); color: var(--text-1); line-height: 1.8; white-space: pre-wrap; }

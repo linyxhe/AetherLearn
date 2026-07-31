@@ -48,11 +48,11 @@ file:
 #
 # 供应商切换指南：
 # ┌──────────────┬──────────────────────────────────────┬────────────────────────────────────────┐
-# │ 供应商        │ base-url                             │ model-name                             │
+# │ 供应商           base-url                                model-name
 # ├──────────────┼──────────────────────────────────────┼────────────────────────────────────────┤
-# │ 小米 MiMo    │ https://api.xiaomimimo.com/v1        │ mimo-v2.5-pro               │
-# │ DeepSeek     │ https://api.deepseek.com/v1          │ deepseek-v4-flash                          │
-# │ OpenRouter   │ https://openrouter.ai/api/v1         │ nvidia/nemotron-3-ultra-550b-a55b:free │
+# │ 小米 MiMo       https://api.xiaomimimo.com/v1           mimo-v2.5-pro
+# │ DeepSeek       https://api.deepseek.com/v1             deepseek-v4-flash
+# │ OpenRouter     https://openrouter.ai/api/v1            nvidia/nemotron-3-ultra-550b-a55b:free
 # └──────────────┴──────────────────────────────────────┴────────────────────────────────────────┘
 langchain4j:
   open-ai:
