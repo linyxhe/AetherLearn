@@ -61,7 +61,7 @@ langchain4j:
       model-name: deepseek-v4-flash
       temperature: 0.3
       timeout: PT120S
-
+      api-key: <<your AI api-key>>
 # 业务层 AI 参数（RAG 检索配置，保留）
 ai:
   enabled: true
