@@ -18,7 +18,8 @@
         <div class="course-grid">
           <n-card v-for="course in courses" :key="course.id" class="course-card" :bordered="false" @click="enterCourse(course)">
             <div class="course-cover" :style="coverStyle(course)">
-              <n-tag round type="success">{{ course.courseCode || 'COURSE' }}</n-tag>
+              <n-tag round :type="course.status === 1 ? 'success' : 'default'">{{ course.courseCode || 'COURSE' }}</n-tag>
+              <n-tag v-if="course.status !== 1" round type="warning">已关闭</n-tag>
             </div>
             <div class="course-card-body">
               <div class="course-title-row">
@@ -230,6 +231,7 @@ import {
   NCheckboxGroup
 } from 'naive-ui'
 import { listCourses, joinCourse, listCourseChapters, completeCourseChapter } from '../api/course'
+import { resolveApplicationUrl } from '../utils/url'
 import { getChapterNote, saveChapterNote } from '../api/note'
 import { listChapterQuizzes, submitChapterQuiz } from '../api/chapterQuiz'
 
@@ -253,6 +255,8 @@ const quizSubmitting = ref(false)
 const quizList = ref([])
 const quizResult = ref(null)
 const quizAnswers = reactive({})
+let noteRequestId = 0
+let quizRequestId = 0
 
 const activeChapters = computed(() => activeCourse.value ? (chapterMap[activeCourse.value.id] || []) : [])
 
@@ -260,9 +264,15 @@ async function load() {
   loading.value = true
   try {
     courses.value = await listCourses()
-    await Promise.all(courses.value.map(async (course) => {
-      chapterMap[course.id] = await listCourseChapters(course.id)
-    }))
+    const chapterResults = await Promise.allSettled(courses.value.map((course) => listCourseChapters(course.id)))
+    chapterResults.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        chapterMap[courses.value[index].id] = result.value || []
+      } else {
+        // 单门课程失败不阻塞其他课程，进入课程时仍可重试。
+        chapterMap[courses.value[index].id] = []
+      }
+    })
     await openCourseFromQuery()
   } finally {
     loading.value = false
@@ -286,10 +296,13 @@ async function onJoin() {
 }
 
 async function enterCourse(course) {
+  if (course.status !== 1) {
+    message.warning('该课程已关闭，暂时无法继续学习')
+    return
+  }
   activeCourse.value = course
   activeChapter.value = (chapterMap[course.id] || [])[0] || null
-  await loadNote()
-  await loadQuiz()
+  await Promise.all([loadNote(), loadQuiz()])
 }
 
 async function openChapter(chapter) {
@@ -349,9 +362,13 @@ function resetNote() {
 }
 
 async function loadNote() {
+  const requestId = ++noteRequestId
+  const chapterId = activeChapter.value?.id
   resetNote()
-  if (!activeChapter.value?.id) return
-  const note = await getChapterNote(activeChapter.value.id)
+  if (!chapterId) return
+  const note = await getChapterNote(chapterId)
+  // 快速切换章节时，旧章节响应不得覆盖当前编辑器。
+  if (requestId !== noteRequestId || activeChapter.value?.id !== chapterId) return
   if (note) {
     Object.assign(noteForm, {
       id: note.id,
@@ -385,18 +402,22 @@ async function saveNote() {
 }
 
 async function loadQuiz() {
+  const requestId = ++quizRequestId
+  const chapterId = activeChapter.value?.id
   quizList.value = []
   quizResult.value = null
   Object.keys(quizAnswers).forEach((key) => delete quizAnswers[key])
-  if (!activeChapter.value?.id) return
+  if (!chapterId) return
   quizLoading.value = true
   try {
-    quizList.value = await listChapterQuizzes(activeChapter.value.id)
+    const list = await listChapterQuizzes(chapterId)
+    if (requestId !== quizRequestId || activeChapter.value?.id !== chapterId) return
+    quizList.value = list || []
     quizList.value.forEach((quiz) => {
       quizAnswers[quiz.id] = quiz.type === 2 ? [] : ''
     })
   } finally {
-    quizLoading.value = false
+    if (requestId === quizRequestId) quizLoading.value = false
   }
 }
 
@@ -447,9 +468,7 @@ function parseQuizOptions(text) {
 }
 
 function resolveResourceUrl(url) {
-  if (!url) return ''
-  if (/^https?:\/\//i.test(url)) return url
-  return url.startsWith('/') ? url : `/${url}`
+  return resolveApplicationUrl(url)
 }
 
 /** 从资源路径提取用于学生端展示和下载的文件名。 */

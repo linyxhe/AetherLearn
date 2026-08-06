@@ -68,22 +68,27 @@ function fill(name) {
 
 // 登录处理
 async function handleLogin() {
-  await formRef.value.validate(async (valid) => {
-    if (!valid) return
-    loading.value = true
-    try {
-      const res = await loginApi({ username: form.username, password: form.password })
-      // res = { token, user }
-      userStore.setLogin(res.token, res.user)
-      ElMessage.success('登录成功')
-      // 按角色跳转首页
-      router.push(homePathByRole(res.user.role))
-    } catch (e) {
-      // 错误提示由 request 拦截器统一处理
-    } finally {
-      loading.value = false
-    }
-  })
+  if (loading.value || !formRef.value) return
+  let valid = false
+  try {
+    valid = await formRef.value.validate()
+  } catch {
+    valid = false
+  }
+  if (!valid) return
+  loading.value = true
+  try {
+    const res = await loginApi({ username: form.username, password: form.password })
+    // res = { token, user }
+    userStore.setLogin(res.token, res.user)
+    ElMessage.success('登录成功')
+    // 按角色跳转首页
+    router.push(homePathByRole(res.user.role))
+  } catch (e) {
+    // 错误提示由 request 拦截器统一处理
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 

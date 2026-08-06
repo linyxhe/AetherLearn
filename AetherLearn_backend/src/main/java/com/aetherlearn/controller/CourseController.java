@@ -48,7 +48,7 @@ public class CourseController {
     /**
      * 新建/编辑课程（仅 教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @PostMapping
     public Result<Course> save(@Valid @RequestBody CourseSaveRequest request) {
         Long operatorId = SecurityUtils.getCurrentUserId();
@@ -59,20 +59,21 @@ public class CourseController {
     /**
      * 删除课程（软删除，仅 教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
-        courseService.delete(id);
+        courseService.delete(id, SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole());
         return Result.success();
     }
 
     /**
      * 生成课程邀请码（仅 教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @PostMapping("/{id}/invite")
     public Result<String> invite(@PathVariable Long id) {
-        return Result.success("邀请码已生成", courseService.generateInviteCode(id));
+        return Result.success("邀请码已生成", courseService.generateInviteCode(id,
+                SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole()));
     }
 
     /**
@@ -89,19 +90,19 @@ public class CourseController {
     /**
      * 查询课程学生名单（F-COURSE-03，仅 教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @GetMapping("/{id}/students")
     public Result<List<SysUser>> listStudents(@PathVariable Long id) {
-        return Result.success(courseService.listStudents(id));
+        return Result.success(courseService.listStudents(id, SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole()));
     }
 
     /**
      * 移除课程学生（F-COURSE-03，仅 教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @DeleteMapping("/{id}/students/{studentId}")
     public Result<Void> removeStudent(@PathVariable Long id, @PathVariable Long studentId) {
-        courseService.removeStudent(id, studentId);
+        courseService.removeStudent(id, studentId, SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole());
         return Result.success();
     }
 
@@ -118,29 +119,30 @@ public class CourseController {
     /**
      * 新增/编辑在线学习章节（仅教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @PostMapping("/chapters")
     public Result<CourseChapter> saveChapter(@Valid @RequestBody CourseChapterSaveRequest request) {
-        return Result.success("章节保存成功", courseService.saveChapter(request));
+        return Result.success("章节保存成功", courseService.saveChapter(request,
+                SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole()));
     }
 
     /**
      * 删除在线学习章节（仅教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @DeleteMapping("/chapters/{chapterId}")
     public Result<Void> deleteChapter(@PathVariable Long chapterId) {
-        courseService.deleteChapter(chapterId);
+        courseService.deleteChapter(chapterId, SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole());
         return Result.success();
     }
 
     /**
      * 删除章节已上传的资源文件（仅教师/管理员）。
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @DeleteMapping("/chapters/{chapterId}/resource")
     public Result<Void> deleteChapterResource(@PathVariable Long chapterId) {
-        courseService.deleteChapterResource(chapterId);
+        courseService.deleteChapterResource(chapterId, SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole());
         return Result.success();
     }
 

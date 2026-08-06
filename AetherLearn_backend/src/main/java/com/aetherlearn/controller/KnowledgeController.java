@@ -34,29 +34,32 @@ public class KnowledgeController {
     /**
      * 上传文档：解析 + 切片入库（仅 教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @PostMapping("/upload")
     public Result<KnowledgeDoc> upload(@RequestParam Long courseId,
                                        @RequestParam("file") MultipartFile file) {
         Long uploadBy = SecurityUtils.getCurrentUserId();
-        return Result.success("上传成功", knowledgeService.upload(courseId, uploadBy, file));
+        return Result.success("上传成功", knowledgeService.upload(courseId, uploadBy,
+                SecurityUtils.getCurrentRole(), file));
     }
 
     /**
      * 列举课程下的知识文档
      */
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN','STUDENT')")
     @GetMapping("/list")
     public Result<List<KnowledgeDoc>> list(@RequestParam Long courseId) {
-        return Result.success(knowledgeService.listByCourse(courseId));
+        return Result.success(knowledgeService.listByCourse(courseId,
+                SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole()));
     }
 
     /**
      * 删除文档（软删除，仅 教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
-        knowledgeService.delete(id);
+        knowledgeService.delete(id, SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole());
         return Result.success();
     }
 
@@ -69,11 +72,13 @@ public class KnowledgeController {
      * @param topK     返回数量上限（默认 10）
      * @return 按相关性降序排列的切片来源列表
      */
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN','STUDENT')")
     @GetMapping("/search")
     public Result<List<QaSource>> search(@RequestParam Long courseId,
                                          @RequestParam String query,
                                          @RequestParam(defaultValue = "10") int topK) {
-        return Result.success(knowledgeService.searchChunks(courseId, query, topK));
+        return Result.success(knowledgeService.searchChunks(courseId, query, topK,
+                SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole()));
     }
 }
 

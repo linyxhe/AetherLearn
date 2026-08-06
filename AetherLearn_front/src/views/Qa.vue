@@ -63,7 +63,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { NAlert, NButton, NCard, NCollapse, NCollapseItem, NEmpty, NInput, NSelect, NSpace, NTag } from 'naive-ui'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -77,6 +77,9 @@ const messages = ref([])
 const question = ref('')
 const asking = ref(false)
 const scrollRef = ref(null)
+let activeController = null
+let activeRequestId = 0
+let historyRequestId = 0
 
 marked.setOptions({ gfm: true, breaks: true })
 
@@ -104,6 +107,10 @@ async function loadCourses() {
   }
 }
 function onCourseChange() {
+  activeRequestId += 1
+  activeController?.abort()
+  activeController = null
+  asking.value = false
   messages.value = []
   if (selectedCourse.value) localStorage.setItem('qa_selectedCourse', selectedCourse.value)
   else localStorage.removeItem('qa_selectedCourse')
@@ -111,19 +118,31 @@ function onCourseChange() {
 }
 async function loadHistory() {
   if (!selectedCourse.value) return
-  const list = await qaHistory(selectedCourse.value)
-  const result = []
-  for (const r of (list || []).reverse()) {
-    result.push({ role: 'user', content: r.question })
-    result.push({ role: 'ai', content: r.answer, useLlm: r.useLlm === 1, costMs: r.costMs || 0, sources: r.sources || [], typing: false })
+  const courseAtRequest = selectedCourse.value
+  const requestId = ++historyRequestId
+  try {
+    const list = await qaHistory(courseAtRequest)
+    if (requestId !== historyRequestId || selectedCourse.value !== courseAtRequest) return
+    const result = []
+    for (const r of (list || []).reverse()) {
+      result.push({ role: 'user', content: r.question })
+      result.push({ role: 'ai', content: r.answer, useLlm: r.useLlm === 1, costMs: r.costMs || 0, sources: r.sources || [], typing: false })
+    }
+    messages.value = result
+    scrollToBottom()
+  } catch {
+    // 统一请求拦截器已提示错误，保留当前聊天内容避免整页空白。
   }
-  messages.value = result
-  scrollToBottom()
 }
 async function send() {
+  if (asking.value) return
   const q = question.value.trim()
   if (!q) return
   if (!selectedCourse.value) return
+  const requestId = ++activeRequestId
+  const courseAtRequest = selectedCourse.value
+  activeController?.abort()
+  activeController = new AbortController()
   messages.value.push({ role: 'user', content: q })
   question.value = ''
   asking.value = true
@@ -131,7 +150,18 @@ async function send() {
   messages.value.push({ role: 'ai', content: '', useLlm: false, costMs: 0, sources: [], typing: true })
   scrollToBottom()
   try {
-    const resp = await askQaStream({ courseId: selectedCourse.value, question: q })
+    const resp = await askQaStream({ courseId: courseAtRequest, question: q }, activeController.signal)
+    if (!resp.ok) {
+      let detail = `请求失败（${resp.status}）`
+      try {
+        const body = await resp.json()
+        detail = body?.message || detail
+      } catch {
+        // 非 JSON 错误响应使用状态码提示。
+      }
+      throw new Error(detail)
+    }
+    if (!resp.body) throw new Error('服务器未返回问答流')
     const reader = resp.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
@@ -150,7 +180,9 @@ async function send() {
           else if (line.startsWith('data:')) dataLines.push(line.substring(5))
         }
         const eventData = dataLines.join('\n')
-        if (eventType && eventData) handleSseEvent(eventType, eventData, aiIndex)
+        if (eventType && eventData && requestId === activeRequestId && courseAtRequest === selectedCourse.value) {
+          handleSseEvent(eventType, eventData, aiIndex)
+        }
       }
       scrollToBottom()
     }
@@ -162,14 +194,27 @@ async function send() {
         else if (line.startsWith('data:')) dataLines.push(line.substring(5))
       }
       const eventData = dataLines.join('\n')
-      if (eventType && eventData) handleSseEvent(eventType, eventData, aiIndex)
+      if (eventType && eventData && requestId === activeRequestId && courseAtRequest === selectedCourse.value) {
+        handleSseEvent(eventType, eventData, aiIndex)
+      }
+    }
+  } catch (error) {
+    if (error?.name !== 'AbortError' && requestId === activeRequestId && courseAtRequest === selectedCourse.value) {
+      const msg = messages.value[aiIndex]
+      if (msg) {
+        messages.value[aiIndex] = { ...msg, content: error?.message || '问答服务暂时不可用，请稍后重试', typing: false }
+        messages.value = [...messages.value]
+      }
     }
   } finally {
-    asking.value = false
-    const finalMsg = messages.value[aiIndex]
-    if (finalMsg && finalMsg.typing) {
-      messages.value[aiIndex] = { ...finalMsg, typing: false }
-      messages.value = [...messages.value]
+    if (requestId === activeRequestId) {
+      asking.value = false
+      activeController = null
+      const finalMsg = messages.value[aiIndex]
+      if (finalMsg && finalMsg.typing) {
+        messages.value[aiIndex] = { ...finalMsg, typing: false }
+        messages.value = [...messages.value]
+      }
     }
     await nextTick()
     scrollToBottom()
@@ -197,6 +242,12 @@ function scrollToBottom() { nextTick(() => { if (scrollRef.value) scrollRef.valu
 onMounted(async () => {
   await loadCourses()
   if (selectedCourse.value) loadHistory()
+})
+onUnmounted(() => {
+  activeRequestId += 1
+  historyRequestId += 1
+  activeController?.abort()
+  activeController = null
 })
 </script>
 

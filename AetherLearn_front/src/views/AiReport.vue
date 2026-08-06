@@ -12,6 +12,9 @@
         <div class="hero-card-sub">{{ report?.aiGenerated ? '已调用模型生成文本' : '当前使用规则模板降级' }}</div>
       </n-card>
     </div>
+    <n-alert v-if="errorMessage" type="error" :bordered="false" :title="errorMessage">
+      <template #action><n-button size="small" @click="load">重新加载</n-button></template>
+    </n-alert>
 
     <n-grid :cols="4" :x-gap="16" :y-gap="16" responsive="screen">
       <n-grid-item v-for="card in statCards" :key="card.label">
@@ -73,25 +76,26 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { NButton, NCard, NGrid, NGridItem, NSpin, NStep, NSteps, NTag } from 'naive-ui'
+import { NAlert, NButton, NCard, NGrid, NGridItem, NSpin, NStep, NSteps, NTag } from 'naive-ui'
 import { getStudentAiReport } from '../api/aiReport'
 
 const loading = ref(false)
 const report = ref(null)
+const errorMessage = ref('')
 
 const statCards = computed(() => {
   const r = report.value
   if (!r?.overview) {
     return [
       { label: '平均正确率', value: '0%' },
-      { label: '平均分', value: '0' },
+      { label: '平均得分率', value: '0%' },
       { label: '活跃次数', value: '0' },
       { label: '课程数', value: '0' }
     ]
   }
   return [
     { label: '平均正确率', value: `${Number(r.overview.avgAccuracy || 0).toFixed(1)}%` },
-    { label: '平均分', value: Number(r.overview.avgScore || 0).toFixed(1) },
+    { label: '平均得分率', value: `${Number(r.overview.avgScore || 0).toFixed(1)}%` },
     { label: '活跃次数', value: r.overview.activityCount || 0 },
     { label: '课程数', value: r.overview.courseCount || 0 }
   ]
@@ -101,8 +105,11 @@ onMounted(load)
 
 async function load() {
   loading.value = true
+  errorMessage.value = ''
   try {
     report.value = await getStudentAiReport()
+  } catch (error) {
+    errorMessage.value = error?.message || 'AI 学习报告加载失败，请重试'
   } finally {
     loading.value = false
   }

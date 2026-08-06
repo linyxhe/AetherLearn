@@ -36,6 +36,7 @@ public class AnswerController {
     /**
      * 学生提交作答并自动批改
      */
+    @PreAuthorize("hasRole('STUDENT')")
     @PostMapping("/submit")
     public Result<GradeResultVO> submit(@Valid @RequestBody AnswerSubmitRequest request) {
         Long studentId = SecurityUtils.getCurrentUserId();
@@ -53,25 +54,26 @@ public class AnswerController {
         // 仅教师/管理员可指定学生；学生只能看自己
         Long target = (role != null && role != RoleConstant.STUDENT && studentId != null)
                 ? studentId : viewerId;
-        return Result.success(assignmentService.getResult(target, assignmentId));
+        return Result.success(assignmentService.getResult(target, assignmentId, viewerId, role));
     }
 
     /**
      * 教师查看某作业提交情况（按学生汇总）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @GetMapping("/submissions")
     public Result<List<SubmissionSummaryVO>> submissions(@RequestParam Long assignmentId) {
-        return Result.success(assignmentService.getSubmissions(assignmentId));
+        return Result.success(assignmentService.getSubmissions(assignmentId,
+                SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole()));
     }
 
     /**
      * 教师复核单题作答（调分/反馈/复核状态）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @PostMapping("/review")
     public Result<Void> review(@Valid @RequestBody ReviewRequest request) {
-        assignmentService.review(request);
+        assignmentService.review(request, SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole());
         return Result.success();
     }
 }

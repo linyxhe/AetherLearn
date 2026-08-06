@@ -12,6 +12,9 @@
         <div class="hero-card-sub">你的学习节奏、弱项和建议会随着作业与课程进度实时更新。</div>
       </n-card>
     </div>
+    <n-alert v-if="errorMessage" type="error" :bordered="false" :title="errorMessage">
+      <template #action><n-button size="small" @click="load">重新加载</n-button></template>
+    </n-alert>
 
     <n-grid :cols="3" :x-gap="16" :y-gap="16" responsive="screen">
       <n-grid-item v-for="c in overviewCards" :key="c.label">
@@ -70,7 +73,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { NCard, NEmpty, NGrid, NGridItem, NStep, NSteps, NTag } from 'naive-ui'
+import { NAlert, NButton, NCard, NEmpty, NGrid, NGridItem, NStep, NSteps, NTag } from 'naive-ui'
 import { useUserStore } from '../store/user'
 import { getAnalyticsOverview } from '../api/dashboard'
 import { initChart, applyOption, disposeChart, areaGradient, emptyGraphic, BRAND } from '../utils/chartTheme'
@@ -82,6 +85,7 @@ const trendData = ref([])
 const radarData = ref([])
 const suggestions = ref([])
 const weakGaps = ref([])
+const errorMessage = ref('')
 const learningPath = ref([])
 const elTrend = ref(null)
 const elRadar = ref(null)
@@ -106,15 +110,20 @@ onMounted(load)
 onBeforeUnmount(() => charts.forEach(disposeChart))
 
 async function load() {
-  const data = await getAnalyticsOverview()
-  overview.value = data.overview || {}
-  trendData.value = data.scoreTrend || []
-  radarData.value = data.knowledgeGaps || []
-  suggestions.value = data.suggestions || []
-  learningPath.value = data.learningPath || []
-  weakGaps.value = (radarData.value || []).filter((g) => g.weak).map((g) => ({ knowledgePoint: g.knowledgePoint, errorRate: Number(g.errorRate).toFixed(1) }))
-  await nextTick()
-  renderAll()
+  errorMessage.value = ''
+  try {
+    const data = await getAnalyticsOverview()
+    overview.value = data.overview || {}
+    trendData.value = data.scoreTrend || []
+    radarData.value = data.knowledgeGaps || []
+    suggestions.value = data.suggestions || []
+    learningPath.value = data.learningPath || []
+    weakGaps.value = (radarData.value || []).filter((g) => g.weak).map((g) => ({ knowledgePoint: g.knowledgePoint, errorRate: Number(g.errorRate).toFixed(1) }))
+    await nextTick()
+    renderAll()
+  } catch (error) {
+    errorMessage.value = error?.message || '学习数据加载失败，请重试'
+  }
 }
 
 function renderAll() {

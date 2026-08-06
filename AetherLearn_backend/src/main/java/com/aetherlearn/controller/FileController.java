@@ -1,10 +1,13 @@
 package com.aetherlearn.controller;
 
 import com.aetherlearn.common.BusinessException;
+import com.aetherlearn.common.RoleConstant;
+import com.aetherlearn.common.SecurityUtils;
 import com.aetherlearn.common.Result;
 import com.aetherlearn.kb.DocumentParser;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -51,6 +54,7 @@ public class FileController {
      * @return 含访问路径的 Map
      */
     @PostMapping("/upload")
+    @PreAuthorize("isAuthenticated()")
     public Result<Map<String, String>> upload(@RequestParam("file") MultipartFile file,
                                               @RequestParam("bizType") String bizType,
                                               HttpServletRequest request) {
@@ -62,6 +66,7 @@ public class FileController {
         if (!valid) {
             throw new BusinessException(400, "非法的 bizType：" + bizType);
         }
+        validateBizTypePermission(bizType);
         if (file.isEmpty()) {
             throw new BusinessException(400, "上传文件不能为空");
         }
@@ -75,7 +80,11 @@ public class FileController {
             String original = file.getOriginalFilename();
             String ext = "";
             if (original != null && original.contains(".")) {
-                ext = original.substring(original.lastIndexOf("."));
+                String candidate = original.substring(original.lastIndexOf(".")).toLowerCase();
+                // 仅保留安全扩展名，避免原始文件名中的路径分隔符进入目标路径。
+                if (candidate.matches("\\.[a-z0-9]{1,10}")) {
+                    ext = candidate;
+                }
             }
             String fileName = UUID.randomUUID().toString().replace("-", "") + ext;
             Path target = dir.resolve(fileName);
@@ -98,6 +107,7 @@ public class FileController {
      * 解析已上传的课程章节资料为纯文本，供教师二次编辑章节内容。
      */
     @GetMapping("/parse")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     public Result<Map<String, String>> parseUploaded(@RequestParam("url") String url) {
         if (url == null || !url.startsWith("/uploads/")) {
             throw new BusinessException(400, "非法文件路径");
@@ -123,5 +133,22 @@ public class FileController {
         } catch (IllegalArgumentException e) {
             throw new BusinessException(400, e.getMessage());
         }
+    }
+
+    /** 按业务分桶限制上传角色，避免客户端修改 bizType 写入其他业务目录。 */
+    private void validateBizTypePermission(String bizType) {
+        Integer role = SecurityUtils.getCurrentRole();
+        if ("avatar".equals(bizType)) {
+            return;
+        }
+        if ("answer".equals(bizType)
+                && (RoleConstant.STUDENT == role || RoleConstant.TEACHER == role)) {
+            return;
+        }
+        if (("course".equals(bizType) || "knowledge".equals(bizType) || "export".equals(bizType))
+                && (RoleConstant.TEACHER == role || RoleConstant.ADMIN == role)) {
+            return;
+        }
+        throw new BusinessException(403, "当前角色无权上传该类型文件");
     }
 }

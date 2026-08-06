@@ -1,6 +1,7 @@
 package com.aetherlearn.service.impl;
 
 import com.aetherlearn.common.BusinessException;
+import com.aetherlearn.common.RoleConstant;
 import com.aetherlearn.dto.QaSource;
 import com.aetherlearn.entity.KnowledgeChunk;
 import com.aetherlearn.entity.KnowledgeDoc;
@@ -9,6 +10,8 @@ import com.aetherlearn.kb.DocumentParser;
 import com.aetherlearn.kb.TextChunker;
 import com.aetherlearn.mapper.KnowledgeChunkMapper;
 import com.aetherlearn.mapper.KnowledgeDocMapper;
+import com.aetherlearn.mapper.CourseMapper;
+import com.aetherlearn.mapper.CourseStudentMapper;
 import com.aetherlearn.service.KnowledgeService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +42,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     private final DocumentParser documentParser;
     private final TextChunker textChunker;
     private final Bm25Retriever retriever;
+    private final CourseMapper courseMapper;
+    private final CourseStudentMapper courseStudentMapper;
 
     /** 上传根目录（来自 application.yml 的 file.upload-dir） */
     @Value("${file.upload-dir}")
@@ -49,17 +54,20 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     public KnowledgeServiceImpl(KnowledgeDocMapper docMapper, KnowledgeChunkMapper chunkMapper,
                                 DocumentParser documentParser, TextChunker textChunker,
-                                Bm25Retriever retriever) {
+                                Bm25Retriever retriever, CourseMapper courseMapper,
+                                CourseStudentMapper courseStudentMapper) {
         this.docMapper = docMapper;
         this.chunkMapper = chunkMapper;
         this.documentParser = documentParser;
         this.textChunker = textChunker;
         this.retriever = retriever;
+        this.courseMapper = courseMapper;
+        this.courseStudentMapper = courseStudentMapper;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public KnowledgeDoc upload(Long courseId, Long uploadBy, MultipartFile file) {
+    public KnowledgeDoc upload(Long courseId, Long uploadBy, Integer role, MultipartFile file) {
         if (courseId == null) {
             throw new BusinessException(400, "课程ID不能为空");
         }
@@ -67,6 +75,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new BusinessException(400, "上传文件不能为空");
         }
 
+        assertCourseAccess(courseId, uploadBy, role, true);
         String original = file.getOriginalFilename();
         String fileType = resolveType(original);
 
@@ -126,8 +135,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             return doc;
         } catch (BusinessException e) {
             // 业务校验错误直接返回给前端，避免被包装成笼统的“解析失败”。
+            deletePhysicalFile(target);
             throw e;
         } catch (Exception e) {
+            deletePhysicalFile(target);
             // 解析失败：标记文档状态为失败，不阻断事务（doc 记录保留以便排查）
             doc.setStatus(2); // 2-失败
             docMapper.updateById(doc);
@@ -137,7 +148,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     @Override
-    public List<KnowledgeDoc> listByCourse(Long courseId) {
+    public List<KnowledgeDoc> listByCourse(Long courseId, Long userId, Integer role) {
+        assertCourseAccess(courseId, userId, role, false);
         LambdaQueryWrapper<KnowledgeDoc> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(KnowledgeDoc::getCourseId, courseId);
         wrapper.orderByDesc(KnowledgeDoc::getCreateTime);
@@ -147,13 +159,15 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void delete(Long docId) {
+    public void delete(Long docId, Long userId, Integer role) {
         KnowledgeDoc doc = docMapper.selectById(docId);
         if (doc == null) {
             throw new BusinessException(404, "知识文档不存在");
         }
         // removeById 配合 @TableLogic 软删除；检索时 knowledge_chunk 已 JOIN doc.is_deleted 隔离
+        assertCourseAccess(doc.getCourseId(), userId, role, true);
         docMapper.deleteById(docId);
+        deletePhysicalFile(doc.getFilePath());
     }
 
     /**
@@ -161,7 +175,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
      * <p>调用 Bm25Retriever 获取相关切片，再关联文档标题组装 QaSource。</p>
      */
     @Override
-    public List<QaSource> searchChunks(Long courseId, String query, int topK) {
+    public List<QaSource> searchChunks(Long courseId, String query, int topK, Long userId, Integer role) {
         if (courseId == null) {
             throw new BusinessException(400, "课程ID不能为空");
         }
@@ -169,6 +183,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new BusinessException(400, "搜索关键词不能为空");
         }
         // 调用已有 BM25 检索器
+        assertCourseAccess(courseId, userId, role, false);
         List<KnowledgeChunk> chunks = retriever.retrieve(courseId, query.trim(), topK);
         // 组装来源信息
         List<QaSource> sources = new ArrayList<>();
@@ -184,6 +199,47 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     /** 从文件名解析并校验文件类型 */
+    /** 校验课程访问权限，教师只能维护本人课程，学生只能访问已选课程。 */
+    private void assertCourseAccess(Long courseId, Long userId, Integer role, boolean write) {
+        var course = courseMapper.selectById(courseId);
+        if (course == null) {
+            throw new BusinessException(404, "课程不存在");
+        }
+        if (role != null && role == RoleConstant.ADMIN) {
+            return;
+        }
+        if (role != null && role == RoleConstant.TEACHER
+                && java.util.Objects.equals(course.getTeacherId(), userId)) {
+            return;
+        }
+        if (!write && role != null && role == RoleConstant.STUDENT
+                && userId != null && courseStudentMapper.countByCourseAndStudent(courseId, userId) > 0) {
+            return;
+        }
+        throw new BusinessException(403, "无权访问该课程知识库");
+    }
+
+    /** 解析或切片失败时清理已落盘文件，避免产生孤儿文件。 */
+    private void deletePhysicalFile(Path target) {
+        try {
+            Files.deleteIfExists(target);
+        } catch (IOException cleanupError) {
+            log.warn("[KB] 清理失败文件异常: {}", target, cleanupError);
+        }
+    }
+
+    /** 删除文档时按知识库路径安全清理物理文件。 */
+    private void deletePhysicalFile(String filePath) {
+        if (filePath == null || !filePath.startsWith("/uploads/knowledge/")) {
+            return;
+        }
+        Path root = Paths.get(uploadDir, "knowledge").toAbsolutePath().normalize();
+        Path target = root.resolve(filePath.substring("/uploads/knowledge/".length())).normalize();
+        if (target.startsWith(root)) {
+            deletePhysicalFile(target);
+        }
+    }
+
     private String resolveType(String original) {
         if (original == null || !original.contains(".")) {
             throw new BusinessException(400, "无法识别文件类型，请上传 pdf/docx/md/txt");

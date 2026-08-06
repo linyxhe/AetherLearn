@@ -12,6 +12,9 @@
         <div class="hero-card-sub">聚焦课程编排、章节维护、作业批改和学生跟进。</div>
       </n-card>
     </div>
+    <n-alert v-if="errorMessage" type="error" :bordered="false" :title="errorMessage">
+      <template #action><n-button size="small" @click="load">重新加载</n-button></template>
+    </n-alert>
 
     <n-grid :cols="4" :x-gap="16" :y-gap="16" responsive="screen">
       <n-grid-item v-for="c in overviewCards" :key="c.label">
@@ -61,7 +64,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { NCard, NGrid, NGridItem, NTag } from 'naive-ui'
+import { NAlert, NButton, NCard, NGrid, NGridItem, NTag } from 'naive-ui'
 import { useUserStore } from '../store/user'
 import { getDashboardStat } from '../api/dashboard'
 import { initChart, applyOption, disposeChart, areaGradient, barGradient, emptyGraphic, BRAND } from '../utils/chartTheme'
@@ -72,6 +75,7 @@ const roleText = computed(() => userStore.roleName || '教师')
 
 const stat = ref(null)
 const warnStudents = ref([])
+const errorMessage = ref('')
 const elScore = ref(null)
 const elTrend = ref(null)
 const elRadar = ref(null)
@@ -95,11 +99,16 @@ onMounted(load)
 onBeforeUnmount(() => charts.forEach(disposeChart))
 
 async function load() {
-  const data = await getDashboardStat()
-  stat.value = data
-  warnStudents.value = (data.studentRanking || []).filter((s) => s.warning)
-  await nextTick()
-  renderAll()
+  errorMessage.value = ''
+  try {
+    const data = await getDashboardStat()
+    stat.value = data
+    warnStudents.value = (data.studentRanking || []).filter((s) => s.warning)
+    await nextTick()
+    renderAll()
+  } catch (error) {
+    errorMessage.value = error?.message || '看板数据加载失败，请重试'
+  }
 }
 
 function renderAll() {

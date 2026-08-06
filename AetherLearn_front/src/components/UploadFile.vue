@@ -24,6 +24,7 @@ import { computed } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { uploadFile } from '../api/file'
+import { resolveApplicationUrl } from '../utils/url'
 
 const props = defineProps({
   // 已上传文件访问路径（v-model）
@@ -38,7 +39,7 @@ const isImage = computed(() => /\.(png|jpe?g|gif|webp)$/i.test(props.modelValue 
 
 // 将 /uploads/... 的相对路径补全为可访问地址
 function resolveUrl(path) {
-  return path
+  return resolveApplicationUrl(path)
 }
 
 // 覆盖默认上传行为，走我们自己的接口

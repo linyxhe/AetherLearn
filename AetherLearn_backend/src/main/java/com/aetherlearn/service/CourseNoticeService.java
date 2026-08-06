@@ -14,8 +14,8 @@ public interface CourseNoticeService {
     List<CourseNotice> listByRole(Long userId, Integer role, Long courseId);
 
     /** 保存公告 */
-    CourseNotice save(CourseNoticeSaveRequest request, Long operatorId);
+    CourseNotice save(CourseNoticeSaveRequest request, Long operatorId, Integer role);
 
     /** 删除公告 */
-    void delete(Long id);
+    void delete(Long id, Long operatorId, Integer role);
 }

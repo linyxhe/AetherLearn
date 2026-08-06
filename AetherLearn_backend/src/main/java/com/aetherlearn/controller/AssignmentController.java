@@ -49,7 +49,7 @@ public class AssignmentController {
     /**
      * 新建/编辑作业（仅 教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @PostMapping
     public Result<Assignment> save(@Valid @RequestBody AssignmentSaveRequest request) {
         Long operatorId = SecurityUtils.getCurrentUserId();
@@ -60,10 +60,10 @@ public class AssignmentController {
     /**
      * 删除作业（软删除，仅 教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
-        assignmentService.deleteAssignment(id);
+        assignmentService.deleteAssignment(id, SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole());
         return Result.success();
     }
 
@@ -74,25 +74,27 @@ public class AssignmentController {
     public Result<AssignmentDetailVO> detail(@PathVariable Long id) {
         Integer role = SecurityUtils.getCurrentRole();
         boolean hideAnswer = role != null && role == RoleConstant.STUDENT;
-        return Result.success(assignmentService.getDetail(id, hideAnswer));
+        return Result.success(assignmentService.getDetail(id, hideAnswer,
+                SecurityUtils.getCurrentUserId(), role));
     }
 
     /**
      * 新增/编辑题目（仅 教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @PostMapping("/question")
     public Result<Question> saveQuestion(@Valid @RequestBody QuestionSaveRequest request) {
-        return Result.success("保存成功", assignmentService.saveQuestion(request));
+        return Result.success("保存成功", assignmentService.saveQuestion(request,
+                SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole()));
     }
 
     /**
      * 删除题目（仅 教师/管理员）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @DeleteMapping("/question/{id}")
     public Result<Void> deleteQuestion(@PathVariable Long id) {
-        assignmentService.deleteQuestion(id);
+        assignmentService.deleteQuestion(id, SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole());
         return Result.success();
     }
 
@@ -104,13 +106,14 @@ public class AssignmentController {
      * @param count  生成数量（默认 5）
      * @param type   题型（1-单选 2-多选 3-判断 4-填空 5-简答，默认 1）
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @PostMapping("/{id}/auto-generate")
     public Result<List<Question>> autoGenerate(@PathVariable Long id,
                                                @RequestParam Long courseId,
                                                @RequestParam(defaultValue = "5") int count,
                                                @RequestParam(defaultValue = "1") int type) {
-        return Result.success("生成成功", assignmentService.autoGenerateQuestions(id, courseId, count, type));
+        return Result.success("生成成功", assignmentService.autoGenerateQuestions(id, courseId, count, type,
+                SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole()));
     }
 }
 

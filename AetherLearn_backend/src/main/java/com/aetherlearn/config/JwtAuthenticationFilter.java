@@ -36,7 +36,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String[] WHITE_LIST = {
             "/api/auth/login",
             "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/doc.html",
-            "/uploads/**"
+            "/uploads/**",
+            "/", "/index.html", "/favicon.png", "/favicon.ico", "/assets/**",
+            "/login", "/dashboard", "/student-dashboard", "/ai-advice", "/paper-builder",
+            "/course", "/user", "/config", "/knowledge", "/homework", "/notice",
+            "/knowledge-graph", "/my-course", "/my-notes", "/my-homework", "/wrong-book",
+            "/todo", "/ai-report", "/profile", "/qa",
+            "/aetherlearn", "/aetherlearn/", "/aetherlearn/index.html",
+            "/aetherlearn/favicon.png", "/aetherlearn/favicon.ico", "/aetherlearn/assets/**",
+            "/aetherlearn/uploads/**", "/aetherlearn/api/auth/login",
+            "/aetherlearn/swagger-ui.html", "/aetherlearn/swagger-ui/**",
+            "/aetherlearn/v3/api-docs/**", "/aetherlearn/doc.html",
+            "/aetherlearn/login", "/aetherlearn/dashboard", "/aetherlearn/student-dashboard",
+            "/aetherlearn/ai-advice", "/aetherlearn/paper-builder", "/aetherlearn/course",
+            "/aetherlearn/user", "/aetherlearn/config", "/aetherlearn/knowledge",
+            "/aetherlearn/homework", "/aetherlearn/notice", "/aetherlearn/knowledge-graph",
+            "/aetherlearn/my-course", "/aetherlearn/my-notes", "/aetherlearn/my-homework",
+            "/aetherlearn/wrong-book", "/aetherlearn/todo", "/aetherlearn/ai-report",
+            "/aetherlearn/profile", "/aetherlearn/qa"
     };
 
     public JwtAuthenticationFilter(JwtUtil jwtUtil) {

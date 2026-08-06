@@ -20,6 +20,7 @@ import com.aetherlearn.entity.SysUser;
 import com.aetherlearn.entity.KnowledgeChunk;
 import com.aetherlearn.mapper.AssignmentMapper;
 import com.aetherlearn.mapper.CourseMapper;
+import com.aetherlearn.mapper.CourseStudentMapper;
 import com.aetherlearn.mapper.KnowledgeChunkMapper;
 import com.aetherlearn.mapper.LearningRecordMapper;
 import com.aetherlearn.mapper.QuestionMapper;
@@ -84,6 +85,7 @@ public class AssignmentServiceImpl implements AssignmentService {
     private final StudentAnswerMapper studentAnswerMapper;
     private final LearningRecordMapper learningRecordMapper;
     private final CourseMapper courseMapper;
+    private final CourseStudentMapper courseStudentMapper;
     private final SysUserMapper sysUserMapper;
     private final KnowledgeChunkMapper knowledgeChunkMapper;
     private final AiConfig aiConfig;
@@ -92,7 +94,8 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     public AssignmentServiceImpl(AssignmentMapper assignmentMapper, QuestionMapper questionMapper,
                                  StudentAnswerMapper studentAnswerMapper, LearningRecordMapper learningRecordMapper,
-                                 CourseMapper courseMapper, SysUserMapper sysUserMapper,
+                                 CourseMapper courseMapper, CourseStudentMapper courseStudentMapper,
+                                 SysUserMapper sysUserMapper,
                                  KnowledgeChunkMapper knowledgeChunkMapper,
                                  AiConfig aiConfig, LlmClient llmClient) {
         this.assignmentMapper = assignmentMapper;
@@ -100,6 +103,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         this.studentAnswerMapper = studentAnswerMapper;
         this.learningRecordMapper = learningRecordMapper;
         this.courseMapper = courseMapper;
+        this.courseStudentMapper = courseStudentMapper;
         this.sysUserMapper = sysUserMapper;
         this.knowledgeChunkMapper = knowledgeChunkMapper;
         this.aiConfig = aiConfig;
@@ -110,11 +114,12 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     public List<Assignment> listAssignments(Long userId, Integer role, Long courseId) {
-        if (role != null && role == RoleConstant.STUDENT) {
-            return assignmentMapper.selectByStudent(userId, courseId);
-        }
-        // 教师/管理员
-        return assignmentMapper.selectByTeacherOrAdmin(userId, role, courseId);
+        List<Assignment> result = role != null && role == RoleConstant.STUDENT
+                ? assignmentMapper.selectByStudent(userId, courseId)
+                : assignmentMapper.selectByTeacherOrAdmin(userId, role, courseId);
+        // 列表响应也统一刷新有效状态，避免数据库中的旧 status 让过期作业仍显示进行中。
+        result.forEach(this::refreshEffectiveStatus);
+        return result;
     }
 
     // ============ 作业保存（教师） ============
@@ -126,6 +131,16 @@ public class AssignmentServiceImpl implements AssignmentService {
             throw new BusinessException(400, "请选择所属课程");
         }
         validateCourseOwnership(request.getCourseId(), operatorId, role);
+
+        if (request.getTitle() == null || request.getTitle().isBlank()) {
+            throw new BusinessException(400, "作业标题不能为空");
+        }
+        if (request.getType() != null && (request.getType() < 1 || request.getType() > 3)) {
+            throw new BusinessException(400, "作业类型不合法");
+        }
+        if (request.getTotalScore() != null && request.getTotalScore() <= 0) {
+            throw new BusinessException(400, "作业总分必须大于 0");
+        }
 
         Assignment assignment;
         if (request.getId() != null) {
@@ -151,6 +166,11 @@ public class AssignmentServiceImpl implements AssignmentService {
         assignment.setStartTime(parseTime(request.getStartTime()));
         assignment.setEndTime(parseTime(request.getEndTime()));
         assignment.setTotalScore(request.getTotalScore() != null ? request.getTotalScore() : 100);
+        if (assignment.getStartTime() != null && assignment.getEndTime() != null
+                && assignment.getStartTime().isAfter(assignment.getEndTime())) {
+            throw new BusinessException(400, "开始时间不能晚于截止时间");
+        }
+        refreshEffectiveStatus(assignment);
 
         if (assignment.getId() == null) {
             assignmentMapper.insert(assignment);
@@ -162,23 +182,25 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void deleteAssignment(Long id) {
+    public void deleteAssignment(Long id, Long operatorId, Integer role) {
         Assignment assignment = assignmentMapper.selectById(id);
         if (assignment == null) {
             throw new BusinessException(404, "作业不存在或已删除");
         }
         // removeById 配合 @TableLogic 执行软删除
+        validateAssignmentOwnership(assignment, operatorId, role);
         assignmentMapper.deleteById(id);
     }
 
     // ============ 作业详情 ============
 
     @Override
-    public AssignmentDetailVO getDetail(Long assignmentId, boolean hideAnswer) {
+    public AssignmentDetailVO getDetail(Long assignmentId, boolean hideAnswer, Long viewerId, Integer role) {
         Assignment assignment = assignmentMapper.selectById(assignmentId);
         if (assignment == null) {
             throw new BusinessException(404, "作业不存在");
         }
+        validateAssignmentReadAccess(assignment, viewerId, role);
         List<Question> questions = questionMapper.selectByAssignmentId(assignmentId);
         AssignmentDetailVO vo = new AssignmentDetailVO();
         vo.setAssignment(assignment);
@@ -203,7 +225,7 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Question saveQuestion(QuestionSaveRequest request) {
+    public Question saveQuestion(QuestionSaveRequest request, Long operatorId, Integer role) {
         if (request.getAssignmentId() == null) {
             throw new BusinessException(400, "请选择所属作业");
         }
@@ -211,10 +233,12 @@ public class AssignmentServiceImpl implements AssignmentService {
         if (assignment == null) {
             throw new BusinessException(404, "作业不存在");
         }
+        validateAssignmentOwnership(assignment, operatorId, role);
+        validateQuestionScore(assignment, request.getScore(), request.getId());
         Question question;
         if (request.getId() != null) {
             question = questionMapper.selectById(request.getId());
-            if (question == null) {
+            if (question == null || !Objects.equals(question.getAssignmentId(), request.getAssignmentId())) {
                 throw new BusinessException(404, "题目不存在");
             }
         } else {
@@ -243,10 +267,12 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void deleteQuestion(Long id) {
-        if (questionMapper.selectById(id) == null) {
+    public void deleteQuestion(Long id, Long operatorId, Integer role) {
+        Question question = questionMapper.selectById(id);
+        if (question == null) {
             throw new BusinessException(404, "题目不存在");
         }
+        validateAssignmentOwnership(assignmentMapper.selectById(question.getAssignmentId()), operatorId, role);
         questionMapper.deleteById(id);
     }
 
@@ -261,7 +287,17 @@ public class AssignmentServiceImpl implements AssignmentService {
             throw new BusinessException(404, "作业不存在");
         }
         // 校验截止时间：过期禁止提交
-        if (assignment.getEndTime() != null && LocalDateTime.now().isAfter(assignment.getEndTime())) {
+        if (studentId == null || courseStudentMapper.countByCourseAndStudent(assignment.getCourseId(), studentId) == 0) {
+            throw new BusinessException(403, "请先加入作业所属课程");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (assignment.getStatus() != null && assignment.getStatus() == 0) {
+            throw new BusinessException(400, "作业已结束，无法提交");
+        }
+        if (assignment.getStartTime() != null && now.isBefore(assignment.getStartTime())) {
+            throw new BusinessException(400, "作业尚未开始，无法提交");
+        }
+        if (assignment.getEndTime() != null && now.isAfter(assignment.getEndTime())) {
             throw new BusinessException(400, "作业已截止，无法提交");
         }
         List<Question> questions = questionMapper.selectByAssignmentId(assignmentId);
@@ -319,10 +355,18 @@ public class AssignmentServiceImpl implements AssignmentService {
     }
 
     @Override
-    public GradeResultVO getResult(Long studentId, Long assignmentId) {
+    public GradeResultVO getResult(Long studentId, Long assignmentId, Long viewerId, Integer role) {
         Assignment assignment = assignmentMapper.selectById(assignmentId);
         if (assignment == null) {
             throw new BusinessException(404, "作业不存在");
+        }
+        if (role != null && role == RoleConstant.STUDENT) {
+            if (viewerId == null || !Objects.equals(viewerId, studentId)) {
+                throw new BusinessException(403, "只能查看本人的作业成绩");
+            }
+            validateStudentCourseAccess(assignment, studentId);
+        } else {
+            validateAssignmentOwnership(assignment, viewerId, role);
         }
         List<Question> questions = questionMapper.selectByAssignmentId(assignmentId);
         List<StudentAnswer> answers = studentAnswerMapper.selectByAssignmentAndStudent(assignmentId, studentId);
@@ -334,11 +378,12 @@ public class AssignmentServiceImpl implements AssignmentService {
     // ============ 教师查看提交情况 ============
 
     @Override
-    public List<SubmissionSummaryVO> getSubmissions(Long assignmentId) {
+    public List<SubmissionSummaryVO> getSubmissions(Long assignmentId, Long operatorId, Integer role) {
         Assignment assignment = assignmentMapper.selectById(assignmentId);
         if (assignment == null) {
             throw new BusinessException(404, "作业不存在");
         }
+        validateAssignmentOwnership(assignment, operatorId, role);
         List<Question> questions = questionMapper.selectByAssignmentId(assignmentId);
         int questionCount = questions.size();
         List<Long> studentIds = studentAnswerMapper.selectStudentIdsByAssignment(assignmentId);
@@ -372,10 +417,33 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void review(ReviewRequest request) {
+    public void review(ReviewRequest request, Long operatorId, Integer role) {
         StudentAnswer sa = studentAnswerMapper.selectById(request.getAnswerId());
         if (sa == null) {
             throw new BusinessException(404, "作答记录不存在");
+        }
+        Assignment assignment = assignmentMapper.selectById(sa.getAssignmentId());
+        validateAssignmentOwnership(assignment, operatorId, role);
+        Question question = questionMapper.selectById(sa.getQuestionId());
+        if (question == null) {
+            throw new BusinessException(404, "题目不存在");
+        }
+        if (request.getScore() == null || request.getScore() < 0
+                || (question.getScore() != null && request.getScore() > question.getScore())) {
+            throw new BusinessException(400, "评分必须在 0 到题目分值之间");
+        }
+        int existingTotal = studentAnswerMapper.selectByAssignmentAndStudent(sa.getAssignmentId(), sa.getStudentId())
+                .stream()
+                .filter(item -> !Objects.equals(item.getId(), sa.getId()))
+                .mapToInt(item -> item.getScore() == null ? 0 : item.getScore())
+                .sum();
+        if (assignment.getTotalScore() != null && existingTotal + request.getScore() > assignment.getTotalScore()) {
+            throw new BusinessException(400, "该学生作业总分不能超过作业总分");
+        }
+        if (request.getReviewStatus() != null
+                && request.getReviewStatus() != REVIEW_PENDING
+                && request.getReviewStatus() != REVIEW_MODIFIED) {
+            throw new BusinessException(400, "复核状态不合法");
         }
         sa.setScore(request.getScore());
         sa.setFeedback(request.getFeedback());
@@ -385,7 +453,6 @@ public class AssignmentServiceImpl implements AssignmentService {
         studentAnswerMapper.updateById(sa);
 
         // 重新汇总该生该作业总分并回写学习行为记录
-        Assignment assignment = assignmentMapper.selectById(sa.getAssignmentId());
         int earned = studentAnswerMapper.selectByAssignmentAndStudent(sa.getAssignmentId(), sa.getStudentId())
                 .stream().mapToInt(a -> a.getScore() == null ? 0 : a.getScore()).sum();
         if (assignment != null) {
@@ -575,9 +642,80 @@ public class AssignmentServiceImpl implements AssignmentService {
     }
 
     /** 校验课程归属：教师只能操作本人课程 */
+    /** 校验作业写入权限，教师只能维护本人课程，管理员可维护全部课程。 */
+    private void validateAssignmentOwnership(Assignment assignment, Long operatorId, Integer role) {
+        if (assignment == null) {
+            throw new BusinessException(404, "作业不存在");
+        }
+        if (role != null && role == RoleConstant.ADMIN) {
+            return;
+        }
+        if (role == null || role != RoleConstant.TEACHER
+                || operatorId == null
+                || !Objects.equals(courseTeacherId(assignment.getCourseId()), operatorId)) {
+            throw new BusinessException(403, "只能操作本人课程的作业");
+        }
+    }
+
+    /** 校验作业读取权限，学生只能读取已加入课程的作业。 */
+    private void validateAssignmentReadAccess(Assignment assignment, Long viewerId, Integer role) {
+        if (role != null && (role == RoleConstant.ADMIN || role == RoleConstant.TEACHER)) {
+            validateAssignmentOwnership(assignment, viewerId, role);
+            return;
+        }
+        if (role == null || role != RoleConstant.STUDENT) {
+            throw new BusinessException(403, "当前角色无权查看作业");
+        }
+        validateStudentCourseAccess(assignment, viewerId);
+    }
+
+    /** 校验学生是否已加入作业所属课程。 */
+    private void validateStudentCourseAccess(Assignment assignment, Long studentId) {
+        if (studentId == null || courseStudentMapper.countByCourseAndStudent(assignment.getCourseId(), studentId) == 0) {
+            throw new BusinessException(403, "请先加入作业所属课程");
+        }
+    }
+
+    /** 校验题目分值以及题目总分不能超过作业总分。 */
+    private void validateQuestionScore(Assignment assignment, Integer score, Long questionId) {
+        int normalizedScore = score == null ? 0 : score;
+        if (normalizedScore < 0) {
+            throw new BusinessException(400, "题目分值不能为负数");
+        }
+        if (assignment.getTotalScore() == null) {
+            return;
+        }
+        int currentTotal = questionMapper.selectByAssignmentId(assignment.getId()).stream()
+                .filter(item -> questionId == null || !Objects.equals(item.getId(), questionId))
+                .mapToInt(item -> item.getScore() == null ? 0 : item.getScore())
+                .sum();
+        if (currentTotal + normalizedScore > assignment.getTotalScore()) {
+            throw new BusinessException(400, "题目总分不能超过作业总分");
+        }
+    }
+
+    /** 根据截止时间刷新作业展示状态，避免过期作业继续显示为进行中。 */
+    private void refreshEffectiveStatus(Assignment assignment) {
+        if (assignment == null) {
+            return;
+        }
+        if (assignment.getEndTime() != null && LocalDateTime.now().isAfter(assignment.getEndTime())) {
+            assignment.setStatus(0);
+        } else if (assignment.getStatus() == null) {
+            assignment.setStatus(1);
+        }
+    }
+
     private void validateCourseOwnership(Long courseId, Long operatorId, Integer role) {
+        Course course = courseMapper.selectById(courseId);
+        if (course == null) {
+            throw new BusinessException(404, "课程不存在");
+        }
+        if (role == null || (role != RoleConstant.ADMIN && role != RoleConstant.TEACHER)) {
+            throw new BusinessException(403, "当前角色无权操作课程");
+        }
         if (role == RoleConstant.TEACHER) {
-            Long teacherId = courseTeacherId(courseId);
+            Long teacherId = course.getTeacherId();
             if (teacherId == null || !teacherId.equals(operatorId)) {
                 throw new BusinessException(403, "只能操作本人课程的作业");
             }
@@ -765,13 +903,21 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public List<Question> autoGenerateQuestions(Long assignmentId, Long courseId, int count, int questionType) {
+    public List<Question> autoGenerateQuestions(Long assignmentId, Long courseId, int count, int questionType,
+                                                Long operatorId, Integer role) {
         // 校验作业是否存在
         Assignment assignment = assignmentMapper.selectById(assignmentId);
         if (assignment == null) {
             throw new BusinessException(404, "作业不存在");
         }
         // 校验 LLM 是否可用
+        if (courseId == null || !Objects.equals(assignment.getCourseId(), courseId)) {
+            throw new BusinessException(400, "作业与课程不匹配");
+        }
+        validateAssignmentOwnership(assignment, operatorId, role);
+        if (count < 1 || count > 20) {
+            throw new BusinessException(400, "每次生成题目数量应为 1-20 道");
+        }
         if (!aiConfig.isAvailable()) {
             throw new BusinessException(400, "AI 模型未配置，无法自动出题");
         }

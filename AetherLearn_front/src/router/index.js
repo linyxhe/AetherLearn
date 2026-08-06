@@ -17,15 +17,15 @@ const routes = [
       // 学生：学习中心
       { path: 'student-dashboard', name: 'StudentDashboard', component: () => import('../views/StudentDashboard.vue'), meta: { title: '学习中心', roles: [ROLE.STUDENT] } },
       // 教师：课程建设与教学管理
-      { path: 'course', name: 'Course', component: () => import('../views/Course.vue'), meta: { title: '课程管理', roles: [ROLE.TEACHER] } },
+      { path: 'course', name: 'Course', component: () => import('../views/Course.vue'), meta: { title: '课程管理', roles: [ROLE.TEACHER, ROLE.ADMIN] } },
       // 管理员：用户管理（F-AUTH-03）
       { path: 'user', name: 'User', component: () => import('../views/UserAdmin.vue'), meta: { title: '用户管理', roles: [ROLE.ADMIN] } },
       // 管理员：系统配置（L7）
       { path: 'config', name: 'SystemConfig', component: () => import('../views/SystemConfig.vue'), meta: { title: '系统配置', roles: [ROLE.ADMIN] } },
-      { path: 'knowledge', name: 'Knowledge', component: () => import('../views/Knowledge.vue'), meta: { title: '课程知识库', roles: [ROLE.TEACHER] } },
-      { path: 'homework', name: 'Homework', component: () => import('../views/Homework.vue'), meta: { title: '作业管理', roles: [ROLE.TEACHER] } },
-      { path: 'notice', name: 'Notice', component: () => import('../views/Notice.vue'), meta: { title: '课程公告', roles: [ROLE.TEACHER, ROLE.STUDENT] } },
-      { path: 'knowledge-graph', name: 'KnowledgeGraph', component: () => import('../views/KnowledgeGraph.vue'), meta: { title: '知识点图谱', roles: [ROLE.TEACHER, ROLE.STUDENT] } },
+      { path: 'knowledge', name: 'Knowledge', component: () => import('../views/Knowledge.vue'), meta: { title: '课程知识库', roles: [ROLE.TEACHER, ROLE.ADMIN] } },
+      { path: 'homework', name: 'Homework', component: () => import('../views/Homework.vue'), meta: { title: '作业管理', roles: [ROLE.TEACHER, ROLE.ADMIN] } },
+      { path: 'notice', name: 'Notice', component: () => import('../views/Notice.vue'), meta: { title: '课程公告', roles: [ROLE.TEACHER, ROLE.ADMIN, ROLE.STUDENT] } },
+      { path: 'knowledge-graph', name: 'KnowledgeGraph', component: () => import('../views/KnowledgeGraph.vue'), meta: { title: '知识点图谱', roles: [ROLE.TEACHER, ROLE.ADMIN, ROLE.STUDENT] } },
       { path: 'my-course', name: 'MyCourse', component: () => import('../views/MyCourse.vue'), meta: { title: '我的课程', roles: [ROLE.STUDENT] } },
       { path: 'my-notes', name: 'MyNotes', component: () => import('../views/MyNotes.vue'), meta: { title: '我的笔记', roles: [ROLE.STUDENT] } },
       { path: 'my-homework', name: 'MyHomework', component: () => import('../views/MyHomework.vue'), meta: { title: '我的作业', roles: [ROLE.STUDENT] } },
@@ -40,7 +40,7 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes
 })
 
@@ -60,10 +60,22 @@ router.beforeEach((to) => {
     return { path: '/login' }
   }
 
+  // A stale or foreign-origin session must never redirect back to the same
+  // protected route forever. Force a clean AetherLearn login instead.
+  if (![ROLE.ADMIN, ROLE.TEACHER, ROLE.STUDENT].includes(userStore.role)) {
+    userStore.logout()
+    return { path: '/login', query: { reason: 'invalid-session' } }
+  }
+
   // 角色校验：不匹配则回到本人首页
   const allowRoles = to.meta.roles
   if (allowRoles && !allowRoles.includes(userStore.role)) {
-    return { path: homePathByRole(userStore.role) }
+    const fallback = homePathByRole(userStore.role)
+    if (fallback === to.path) {
+      userStore.logout()
+      return { path: '/login', query: { reason: 'invalid-role' } }
+    }
+    return { path: fallback }
   }
 
   return true

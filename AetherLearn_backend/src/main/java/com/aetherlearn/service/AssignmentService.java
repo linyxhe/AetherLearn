@@ -25,28 +25,28 @@ public interface AssignmentService {
     Assignment saveAssignment(AssignmentSaveRequest request, Long operatorId, Integer role);
 
     /** 教师软删除作业 */
-    void deleteAssignment(Long id);
+    void deleteAssignment(Long id, Long operatorId, Integer role);
 
     /** 获取作业详情（含题目）；学生视角 hideAnswer=true 时隐藏标准答案 */
-    AssignmentDetailVO getDetail(Long assignmentId, boolean hideAnswer);
+    AssignmentDetailVO getDetail(Long assignmentId, boolean hideAnswer, Long viewerId, Integer role);
 
     /** 教师新增/编辑题目 */
-    Question saveQuestion(QuestionSaveRequest request);
+    Question saveQuestion(QuestionSaveRequest request, Long operatorId, Integer role);
 
     /** 教师删除题目 */
-    void deleteQuestion(Long id);
+    void deleteQuestion(Long id, Long operatorId, Integer role);
 
     /** 学生提交作答并自动批改，返回批改结果 */
     GradeResultVO submit(Long studentId, AnswerSubmitRequest request);
 
     /** 学生查看某作业的历史批改结果 */
-    GradeResultVO getResult(Long studentId, Long assignmentId);
+    GradeResultVO getResult(Long studentId, Long assignmentId, Long viewerId, Integer role);
 
     /** 教师查看某作业的提交情况汇总（按学生） */
-    List<SubmissionSummaryVO> getSubmissions(Long assignmentId);
+    List<SubmissionSummaryVO> getSubmissions(Long assignmentId, Long operatorId, Integer role);
 
     /** 教师复核单题作答（调整分数/反馈/复核状态） */
-    void review(ReviewRequest request);
+    void review(ReviewRequest request, Long operatorId, Integer role);
 
     /**
      * AI 自动出题（L1）
@@ -58,5 +58,6 @@ public interface AssignmentService {
      * @param questionType 题型（1-单选 2-多选 3-判断 4-填空 5-简答）
      * @return 生成的题目列表
      */
-    List<Question> autoGenerateQuestions(Long assignmentId, Long courseId, int count, int questionType);
+    List<Question> autoGenerateQuestions(Long assignmentId, Long courseId, int count, int questionType,
+                                         Long operatorId, Integer role);
 }

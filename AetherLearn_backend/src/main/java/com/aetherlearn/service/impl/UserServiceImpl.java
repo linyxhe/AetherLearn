@@ -111,7 +111,10 @@ public class UserServiceImpl implements UserService {
             default -> wrapper.orderByDesc(SysUser::getCreateTime);
         }
         wrapper.orderByDesc(SysUser::getId);
-        return sysUserMapper.selectPage(new Page<>(page, size), wrapper);
+        Page<SysUser> result = sysUserMapper.selectPage(new Page<>(Math.max(1, page), Math.min(Math.max(1, size), 100)), wrapper);
+        // 管理员列表不返回密码密文，避免前端或日志意外暴露敏感字段。
+        result.getRecords().forEach(item -> item.setPassword(null));
+        return result;
     }
 
     @Override
@@ -120,6 +123,7 @@ public class UserServiceImpl implements UserService {
         if (user == null) {
             throw new BusinessException(404, "用户不存在");
         }
+        user.setPassword(null);
         return user;
     }
 
@@ -154,16 +158,18 @@ public class UserServiceImpl implements UserService {
         user.setCreateTime(LocalDateTime.now());
         user.setUpdateTime(LocalDateTime.now());
         sysUserMapper.insert(user);
+        user.setPassword(null);
         return user;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public SysUser updateUser(Long id, UserAdminSaveRequest request) {
+    public SysUser updateUser(Long id, UserAdminSaveRequest request, Long operatorId) {
         SysUser user = sysUserMapper.selectById(id);
         if (user == null) {
             throw new BusinessException(404, "用户不存在");
         }
+        ensureAdministratorSafety(user, request.getRole(), user.getStatus(), operatorId);
         // 如果修改了用户名，检查唯一性
         if (request.getUsername() != null && !request.getUsername().equals(user.getUsername())) {
             SysUser existing = sysUserMapper.selectByUsername(request.getUsername());
@@ -195,29 +201,60 @@ public class UserServiceImpl implements UserService {
         }
         user.setUpdateTime(LocalDateTime.now());
         sysUserMapper.updateById(user);
+        user.setPassword(null);
         return user;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void deleteUser(Long id) {
+    public void deleteUser(Long id, Long operatorId) {
         SysUser user = sysUserMapper.selectById(id);
         if (user == null) {
             throw new BusinessException(404, "用户不存在");
         }
+        ensureAdministratorSafety(user, null, null, operatorId);
         sysUserMapper.deleteById(id);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void updateUserStatus(Long id, Integer status) {
+    public void updateUserStatus(Long id, Integer status, Long operatorId) {
         SysUser user = sysUserMapper.selectById(id);
         if (user == null) {
             throw new BusinessException(404, "用户不存在");
         }
+        ensureAdministratorSafety(user, user.getRole(), status, operatorId);
         user.setStatus(status);
         user.setUpdateTime(LocalDateTime.now());
         sysUserMapper.updateById(user);
+    }
+
+    /** 防止管理员误删/禁用自己或最后一个可用管理员。 */
+    private void ensureAdministratorSafety(SysUser target, Integer targetRole,
+                                           Integer targetStatus, Long operatorId) {
+        if (operatorId != null && operatorId.equals(target.getId())) {
+            if (targetStatus != null && targetStatus == 0) {
+                throw new BusinessException(400, "不能禁用当前登录管理员");
+            }
+            if (targetRole != null && targetRole != RoleConstant.ADMIN) {
+                throw new BusinessException(400, "不能将当前登录管理员降级");
+            }
+            if (targetStatus == null && targetRole == null) {
+                throw new BusinessException(400, "不能删除当前登录管理员");
+            }
+        }
+        boolean willLoseAdmin = RoleConstant.ADMIN == target.getRole()
+                && ((targetRole != null && targetRole != RoleConstant.ADMIN)
+                || (targetStatus != null && targetStatus == 0)
+                || (targetStatus == null && targetRole == null));
+        if (willLoseAdmin) {
+            long activeAdmins = sysUserMapper.selectCount(new LambdaQueryWrapper<SysUser>()
+                    .eq(SysUser::getRole, RoleConstant.ADMIN)
+                    .eq(SysUser::getStatus, 1));
+            if (activeAdmins <= 1) {
+                throw new BusinessException(400, "系统至少需要保留一名启用中的管理员");
+            }
+        }
     }
 
     /** 实体 → 对外档案（隐藏密码） */

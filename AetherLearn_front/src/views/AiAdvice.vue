@@ -12,6 +12,9 @@
         <div class="hero-card-sub">{{ advice?.aiGenerated ? '已调用模型生成建议' : '当前使用规则模板降级' }}</div>
       </n-card>
     </div>
+    <n-alert v-if="errorMessage" type="error" :bordered="false" :title="errorMessage">
+      <template #action><n-button size="small" @click="load">重新加载</n-button></template>
+    </n-alert>
 
     <n-grid :cols="4" :x-gap="16" :y-gap="16" responsive="screen">
       <n-grid-item v-for="card in statCards" :key="card.label">
@@ -73,11 +76,12 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { NButton, NCard, NGrid, NGridItem, NSpin, NStep, NSteps, NTag } from 'naive-ui'
+import { NAlert, NButton, NCard, NGrid, NGridItem, NSpin, NStep, NSteps, NTag } from 'naive-ui'
 import { getTeacherAiAdvice } from '../api/aiAdvice'
 
 const loading = ref(false)
 const advice = ref(null)
+const errorMessage = ref('')
 
 const statCards = computed(() => {
   const o = advice.value?.overview
@@ -101,8 +105,11 @@ onMounted(load)
 
 async function load() {
   loading.value = true
+  errorMessage.value = ''
   try {
     advice.value = await getTeacherAiAdvice()
+  } catch (error) {
+    errorMessage.value = error?.message || 'AI 教学建议加载失败，请重试'
   } finally {
     loading.value = false
   }

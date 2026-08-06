@@ -125,6 +125,7 @@ import { NButton, NCard, NEmpty, NForm, NFormItem, NGrid, NGridItem, NInput, NSe
 import UploadFile from '../components/UploadFile.vue'
 import { getUserInfo, updateUser } from '../api/user'
 import { getDashboardStat, getAnalyticsOverview } from '../api/dashboard'
+import { resolveApplicationUrl } from '../utils/url'
 
 const { message } = createDiscreteApi(['message'])
 const userStore = useUserStore()
@@ -157,9 +158,7 @@ const roleText = computed(() => userStore.roleName || '用户')
 const avatarText = computed(() => (profile.realName || userStore.realName || 'U').slice(0, 1))
 
 function resolveUrl(url) {
-  if (!url) return ''
-  if (/^https?:\/\//i.test(url)) return url
-  return url.startsWith('/') ? url : `/${url}`
+  return resolveApplicationUrl(url)
 }
 
 async function loadProfile() {

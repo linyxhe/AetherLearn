@@ -20,17 +20,17 @@ public interface KnowledgeService {
      * @param file     上传的文件（pdf/docx/md/txt）
      * @return 文档记录（含切片数）
      */
-    KnowledgeDoc upload(Long courseId, Long uploadBy, MultipartFile file);
+    KnowledgeDoc upload(Long courseId, Long uploadBy, Integer role, MultipartFile file);
 
     /**
      * 列举课程下的知识文档（按上传时间倒序）
      */
-    List<KnowledgeDoc> listByCourse(Long courseId);
+    List<KnowledgeDoc> listByCourse(Long courseId, Long userId, Integer role);
 
     /**
      * 软删除文档（级联隐藏其切片）
      */
-    void delete(Long docId);
+    void delete(Long docId, Long userId, Integer role);
 
     /**
      * 检索课程知识库切片（M2 知识库检索预览）
@@ -41,5 +41,5 @@ public interface KnowledgeService {
      * @param topK     返回数量上限
      * @return 按相关性降序排列的切片来源列表
      */
-    List<QaSource> searchChunks(Long courseId, String query, int topK);
+    List<QaSource> searchChunks(Long courseId, String query, int topK, Long userId, Integer role);
 }

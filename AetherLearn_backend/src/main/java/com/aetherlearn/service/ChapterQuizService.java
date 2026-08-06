@@ -20,12 +20,12 @@ public interface ChapterQuizService {
     /**
      * 教师新增/编辑题目
      */
-    ChapterQuiz save(ChapterQuizSaveRequest request);
+    ChapterQuiz save(ChapterQuizSaveRequest request, Long operatorId, Integer role);
 
     /**
      * 教师删除题目
      */
-    void delete(Long id);
+    void delete(Long id, Long operatorId, Integer role);
 
     /**
      * 学生提交章节小测

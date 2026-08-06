@@ -1,11 +1,13 @@
 package com.aetherlearn.controller;
 
 import com.aetherlearn.common.Result;
+import com.aetherlearn.common.SecurityUtils;
 import com.aetherlearn.dto.UserAdminSaveRequest;
 import com.aetherlearn.entity.SysUser;
 import com.aetherlearn.service.UserService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -17,6 +19,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/admin/users")
+@PreAuthorize("hasRole('ADMIN')")
 public class UserAdminController {
 
     private final UserService userService;
@@ -73,7 +76,7 @@ public class UserAdminController {
      */
     @PutMapping("/{id}")
     public Result<SysUser> update(@PathVariable Long id, @Valid @RequestBody UserAdminSaveRequest request) {
-        SysUser user = userService.updateUser(id, request);
+        SysUser user = userService.updateUser(id, request, SecurityUtils.getCurrentUserId());
         return Result.success("更新成功", user);
     }
 
@@ -82,7 +85,7 @@ public class UserAdminController {
      */
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
-        userService.deleteUser(id);
+        userService.deleteUser(id, SecurityUtils.getCurrentUserId());
         return Result.success("删除成功", null);
     }
 
@@ -95,7 +98,7 @@ public class UserAdminController {
         if (status == null || (status != 0 && status != 1)) {
             return Result.error(400, "状态值无效，应为 0（禁用）或 1（启用）");
         }
-        userService.updateUserStatus(id, status);
+        userService.updateUserStatus(id, status, SecurityUtils.getCurrentUserId());
         return Result.success("状态更新成功", null);
     }
 }

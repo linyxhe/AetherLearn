@@ -124,8 +124,9 @@
       </template>
     </n-modal>
 
-    <n-drawer v-model:show="studentDrawerVisible" :width="460" placement="right">
+    <n-drawer v-model:show="studentDrawerVisible" :width="460" placement="right" :show-mask="true">
       <n-drawer-content :title="`${drawerCourseName} · 学生名单`">
+        <div class="drawer-close-row"><n-button size="small" secondary @click="studentDrawerVisible = false">关闭</n-button></div>
         <n-spin :show="studentsLoading">
           <div class="drawer-note">学生通过邀请码加入后会出现在这里，教师可以按课程移除学生。</div>
           <div class="student-search">
@@ -162,8 +163,9 @@
       </n-drawer-content>
     </n-drawer>
 
-    <n-drawer v-model:show="chapterDrawerVisible" :width="660" placement="right">
+    <n-drawer v-model:show="chapterDrawerVisible" :width="660" placement="right" :show-mask="true">
       <n-drawer-content :title="`${drawerCourseName} · 章节编辑`">
+        <div class="drawer-close-row"><n-button size="small" secondary @click="chapterDrawerVisible = false">关闭</n-button></div>
         <div class="chapter-toolbar">
           <div>
             <div class="drawer-note">每个章节可以是文字、视频、PDF、Word 或其他资料，学生点击章节进入学习。</div>
@@ -189,7 +191,7 @@
               </div>
               <h3>{{ chapter.title }}</h3>
               <p>{{ chapter.content || '未填写文字说明' }}</p>
-              <a v-if="chapter.resourceUrl" class="resource-link" :href="chapter.resourceUrl" target="_blank">打开章节资源</a>
+              <a v-if="chapter.resourceUrl" class="resource-link" :href="resolveApplicationUrl(chapter.resourceUrl)" target="_blank">打开章节资源</a>
             </n-card>
           </div>
           <n-empty v-if="!chaptersLoading && chapters.length === 0" description="暂无在线学习章节" />
@@ -429,6 +431,7 @@ import {
 import { deleteChapterQuiz, listChapterQuizzes, saveChapterQuiz } from '../api/chapterQuiz'
 import { parseUploadedFile } from '../api/file'
 import UploadFile from '../components/UploadFile.vue'
+import { resolveApplicationUrl } from '../utils/url'
 
 const { message, dialog } = createDiscreteApi(['message', 'dialog'])
 
@@ -1023,6 +1026,7 @@ onMounted(load)
 .resource-link { display: inline-block; margin-top: 10px; color: var(--brand); font-weight: 600; text-decoration: none; }
 .form-hint { margin-left: 8px; color: var(--text-2); font-size: 13px; }
 .upload-parse-box { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+.drawer-close-row { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 .quiz-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding: 12px 14px; border: 1px solid #d7eeee; border-radius: 10px; background: #f4fbfb; }
 .quiz-toolbar b { color: var(--text-1); }
 .quiz-toolbar p { margin: 5px 0 0; color: var(--text-2); font-size: 13px; line-height: 1.6; }

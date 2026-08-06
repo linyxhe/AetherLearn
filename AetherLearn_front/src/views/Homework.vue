@@ -51,13 +51,13 @@
             <td><n-tag :type="row.type === 2 ? 'warning' : 'info'" round>{{ row.type === 2 ? '测验' : '作业' }}</n-tag></td>
             <td>{{ row.totalScore }}</td>
             <td>{{ formatDisplayDate(row.endTime) || '—' }}</td>
-            <td><n-tag :type="row.status === 1 ? 'success' : 'default'" round>{{ row.status === 1 ? '进行中' : '已结束' }}</n-tag></td>
+            <td><n-tag :type="isAssignmentActive(row) ? 'success' : 'default'" round>{{ isAssignmentActive(row) ? '进行中' : '已结束' }}</n-tag></td>
             <td>
               <n-space>
                 <n-button size="small" secondary @click="openQuestionManage(row)">题目管理</n-button>
                 <n-button size="small" type="success" secondary @click="openReview(row)">批改</n-button>
                 <n-button size="small" secondary @click="openAssignmentEdit(row)">编辑</n-button>
-                <n-button size="small" secondary type="error" @click="onDeleteAssignment(row)">删除</n-button>
+                <n-button size="small" secondary type="error" :loading="deletingAssignmentId === row.id" :disabled="deletingAssignmentId !== null && deletingAssignmentId !== row.id" @click="onDeleteAssignment(row)">删除</n-button>
               </n-space>
             </td>
           </tr>
@@ -127,7 +127,7 @@
             <td><n-tag :type="row.type === 5 ? 'warning' : 'info'" round>{{ typeLabel(row.type) }}</n-tag></td>
             <td>{{ row.content }}</td>
             <td>{{ row.score }}</td>
-            <td><n-space><n-button size="small" secondary @click="openQuestionEdit(row)">编辑</n-button><n-button size="small" secondary type="error" @click="onDeleteQuestion(row)">删除</n-button></n-space></td>
+            <td><n-space><n-button size="small" secondary @click="openQuestionEdit(row)">编辑</n-button><n-button size="small" secondary type="error" :loading="deletingQuestionId === row.id" :disabled="deletingQuestionId !== null && deletingQuestionId !== row.id" @click="onDeleteQuestion(row)">删除</n-button></n-space></td>
           </tr>
         </tbody>
       </n-table>
@@ -143,6 +143,7 @@
       <n-form label-placement="left" label-width="64" :model="aiGenForm">
         <n-form-item label="题型"><n-select v-model:value="aiGenForm.type" :options="questionTypeOptions" /></n-form-item>
         <n-form-item label="数量"><n-input-number v-model:value="aiGenForm.count" :min="1" :max="20" /></n-form-item>
+        <n-alert v-if="aiGenLoading" type="info" :bordered="false">{{ aiGenStage }}</n-alert>
       </n-form>
       <template #action>
         <n-space justify="end">
@@ -250,7 +251,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { NButton, NCard, NCheckbox, NCheckboxGroup, NDatePicker, NEmpty, NForm, NFormItem, NGrid, NGridItem, NInput, NInputNumber, NModal, NPagination, NRadio, NRadioGroup, NSpace, NSelect, NTable, NTag, createDiscreteApi } from 'naive-ui'
+import { NAlert, NButton, NCard, NCheckbox, NCheckboxGroup, NDatePicker, NEmpty, NForm, NFormItem, NGrid, NGridItem, NInput, NInputNumber, NModal, NPagination, NRadio, NRadioGroup, NSpace, NSelect, NTable, NTag, createDiscreteApi } from 'naive-ui'
 import { listCourses } from '../api/course'
 import { listAssignments as fetchAssignments, saveAssignment, deleteAssignment, getAssignmentDetail, saveQuestion, deleteQuestion, getAnswerResult, getSubmissions, reviewAnswer, autoGenerateQuestions } from '../api/homework'
 import DOMPurify from 'dompurify'
@@ -272,9 +273,18 @@ const questionTypes = [{ value: 1, label: '单选' }, { value: 2, label: '多选
 const questionTypeOptions = questionTypes
 const typeLabel = (t) => questionTypes.find((x) => x.value === t)?.label || '未知'
 const courseOptions = computed(() => courses.value.map((c) => ({ label: c.courseName, value: c.id })))
-const activeCount = computed(() => assignments.value.filter((a) => a.status === 1).length)
-const endedCount = computed(() => assignments.value.filter((a) => a.status !== 1).length)
+const activeCount = computed(() => assignments.value.filter(isAssignmentActive).length)
+const endedCount = computed(() => assignments.value.filter((a) => !isAssignmentActive(a)).length)
 const statCards = computed(() => [{ label: '作业总数', value: assignments.value.length }, { label: '进行中', value: activeCount.value }, { label: '已结束', value: endedCount.value }])
+
+/** 根据作业状态和起止时间计算实时展示状态，避免过期数据继续显示为进行中。 */
+function isAssignmentActive(assignment) {
+  if (!assignment || assignment.status !== 1) return false
+  const now = Date.now()
+  const start = assignment.startTime ? new Date(String(assignment.startTime).replace(' ', 'T')).getTime() : NaN
+  const end = assignment.endTime ? new Date(String(assignment.endTime).replace(' ', 'T')).getTime() : NaN
+  return (!Number.isFinite(start) || now >= start) && (!Number.isFinite(end) || now <= end)
+}
 const asmVisible = ref(false)
 const asmIsEdit = ref(false)
 const asmSaving = ref(false)
@@ -289,6 +299,7 @@ const qSaving = ref(false)
 const multiAnswer = ref([])
 const aiGenVisible = ref(false)
 const aiGenLoading = ref(false)
+const aiGenStage = ref('正在读取课程知识库并生成题目，请稍候…')
 const aiGenForm = ref({ type: 1, count: 5 })
 const qForm = reactive({ id: null, assignmentId: null, type: 1, content: '', options: [], answer: '', analysis: '', score: 10, knowledgePoint: '', seq: null })
 const rvVisible = ref(false)
@@ -296,6 +307,8 @@ const rvLoading = ref(false)
 const submissions = ref([])
 const currentResult = ref(null)
 const rvSaving = ref(false)
+const deletingAssignmentId = ref(null)
+const deletingQuestionId = ref(null)
 const changedSet = ref(new Set())
 
 const totalQuestionScore = computed(() => questions.value.reduce((s, q) => s + (q.score || 0), 0))
@@ -349,7 +362,9 @@ function formatDisplayDate(value) {
 async function onDeleteAssignment(row) {
   const ok = await dialog.warning({ title: '提示', content: `确定删除作业「${row.title}」吗？`, positiveText: '确定', negativeText: '取消' })
   if (!ok) return
-  await deleteAssignment(row.id)
+  if (deletingAssignmentId.value !== null) return
+  deletingAssignmentId.value = row.id
+  await deleteAssignment(row.id).finally(() => { deletingAssignmentId.value = null })
   message.success('已删除')
   await loadAssignments()
 }
@@ -359,6 +374,14 @@ function openQuestionCreate() { qIsEdit.value = false; resetQForm(); qVisible.va
 function openAiGenerate() { aiGenForm.value = { type: 1, count: 5 }; aiGenVisible.value = true }
 async function onAiGenerate() {
   if (!currentAssignment.value?.courseId) return message.warning('无法获取课程信息')
+  const confirmed = await dialog.warning({
+    title: '确认生成题目',
+    content: `本次将生成 ${aiGenForm.value.count} 道题目，并直接加入当前作业。是否继续？`,
+    positiveText: '继续生成',
+    negativeText: '取消'
+  })
+  if (!confirmed) return
+  aiGenStage.value = '正在读取课程知识库并生成题目，请稍候…'
   aiGenLoading.value = true
   try {
     await autoGenerateQuestions(currentAssignment.value.id, currentAssignment.value.courseId, aiGenForm.value.count, aiGenForm.value.type)
@@ -366,6 +389,8 @@ async function onAiGenerate() {
     aiGenVisible.value = false
     const detail = await getAssignmentDetail(currentAssignment.value.id)
     questions.value = detail.questions || []
+  } catch (error) {
+    message.error(error?.message || 'AI 出题失败，请检查模型配置后重试')
   } finally { aiGenLoading.value = false }
 }
 function openQuestionEdit(row) { qIsEdit.value = true; Object.assign(qForm, { id: row.id, assignmentId: row.assignmentId || currentAssignment.value?.id, type: row.type, content: row.content, options: row.options ? [...row.options] : (row.type === 1 || row.type === 2 ? ['', ''] : []), answer: row.answer || '', analysis: row.analysis || '', score: row.score, knowledgePoint: row.knowledgePoint || '', seq: row.seq }); multiAnswer.value = row.type === 2 && row.answer ? row.answer.split('') : []; qVisible.value = true }
@@ -391,7 +416,9 @@ async function onSaveQuestion() {
 async function onDeleteQuestion(row) {
   const ok = await dialog.warning({ title: '提示', content: '确定删除该题目吗？', positiveText: '确定', negativeText: '取消' })
   if (!ok) return
-  await deleteQuestion(row.id)
+  if (deletingQuestionId.value !== null) return
+  deletingQuestionId.value = row.id
+  await deleteQuestion(row.id).finally(() => { deletingQuestionId.value = null })
   message.success('已删除')
   const detail = await getAssignmentDetail(currentAssignment.value.id)
   questions.value = detail.questions || []

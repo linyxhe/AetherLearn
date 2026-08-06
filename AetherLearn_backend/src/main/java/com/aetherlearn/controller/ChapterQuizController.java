@@ -47,19 +47,20 @@ public class ChapterQuizController {
     /**
      * 教师新增/编辑章节小测题目。
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @PostMapping("/question")
-    public Result<ChapterQuiz> saveQuestion(@RequestBody ChapterQuizSaveRequest request) {
-        return Result.success("题目保存成功", chapterQuizService.save(request));
+    public Result<ChapterQuiz> saveQuestion(@Valid @RequestBody ChapterQuizSaveRequest request) {
+        return Result.success("题目保存成功", chapterQuizService.save(request,
+                SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole()));
     }
 
     /**
      * 教师删除章节小测题目。
      */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @DeleteMapping("/question/{id}")
     public Result<Void> deleteQuestion(@PathVariable Long id) {
-        chapterQuizService.delete(id);
+        chapterQuizService.delete(id, SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole());
         return Result.success();
     }
 

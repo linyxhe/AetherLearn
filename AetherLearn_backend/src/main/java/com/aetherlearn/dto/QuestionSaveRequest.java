@@ -1,6 +1,10 @@
 package com.aetherlearn.dto;
 
 import lombok.Data;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 import java.io.Serializable;
 import java.util.List;
@@ -17,12 +21,17 @@ public class QuestionSaveRequest implements Serializable {
     private Long id;
 
     /** 所属作业ID */
+    @NotNull(message = "作业ID不能为空")
     private Long assignmentId;
 
     /** 题型：1-单选 2-多选 3-判断 4-填空 5-简答 */
+    @NotNull(message = "题型不能为空")
+    @Min(value = 1, message = "题型不合法")
+    @Max(value = 5, message = "题型不合法")
     private Integer type;
 
     /** 题干 */
+    @NotBlank(message = "题干不能为空")
     private String content;
 
     /** 选项（单选/多选使用，如 ["A","B","C","D"]） */
@@ -35,6 +44,7 @@ public class QuestionSaveRequest implements Serializable {
     private String analysis;
 
     /** 分值 */
+    @Min(value = 0, message = "题目分值不能为负数")
     private Integer score;
 
     /** 关联知识点 */

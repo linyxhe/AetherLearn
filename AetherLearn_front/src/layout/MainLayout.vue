@@ -70,7 +70,7 @@
           <n-space align="center" :size="12">
             <n-tag v-if="isTeacher" type="success" round>教师工作台</n-tag>
             <n-tag v-else-if="isStudent" type="info" round>学生学习端</n-tag>
-            <n-dropdown :options="dropdownOptions" @select="onCommand">
+            <n-dropdown :options="dropdownOptions" trigger="click" :show-arrow="true" @select="onCommand">
               <div class="user-box">
                 <n-avatar
                   v-if="userAvatarUrl"
@@ -113,6 +113,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore, ROLE } from '../store/user'
 import { logout as logoutApi } from '../api/auth'
 import { getUserInfo } from '../api/user'
+import { resolveApplicationUrl } from '../utils/url'
 import { NAvatar, NButton, NDropdown, NIcon, NLayout, NLayoutContent, NLayoutHeader, NLayoutSider, NMenu, NSpace, NTag, NTooltip, createDiscreteApi } from 'naive-ui'
 import { Bell, DataLine, Reading, User, Files, EditPen, ChatDotRound, School, Fold, Expand, CaretBottom, WarningFilled, Calendar, TrendCharts, Memo, Share, MagicStick, Setting } from '@element-plus/icons-vue'
 
@@ -130,8 +131,7 @@ const userInitial = computed(() => (userStore.realName?.[0] || userStore.user?.u
 const userAvatarUrl = computed(() => {
   const avatar = userStore.user?.avatar
   if (!avatar) return undefined
-  if (/^https?:\/\//i.test(avatar)) return avatar
-  return avatar.startsWith('/') ? avatar : `/${avatar}`
+  return resolveApplicationUrl(avatar)
 })
 const activeMenu = computed(() => route.path)
 const headerTitle = computed(() => {
@@ -174,11 +174,11 @@ const allMenus = [
   { path: '/dashboard', title: '数据看板', adminTitle: '平台看板', icon: DataLine, roles: [ROLE.ADMIN, ROLE.TEACHER] },
   { path: '/ai-advice', title: 'AI 教学建议', icon: Memo, roles: [ROLE.TEACHER] },
   { path: '/paper-builder', title: '智能组卷', icon: MagicStick, roles: [ROLE.TEACHER] },
-  { path: '/course', title: '课程管理', icon: Reading, roles: [ROLE.TEACHER] },
-  { path: '/knowledge', title: '课程知识库', icon: Files, roles: [ROLE.TEACHER] },
-  { path: '/homework', title: '作业管理', icon: EditPen, roles: [ROLE.TEACHER] },
-  { path: '/notice', title: '课程公告', icon: Bell, roles: [ROLE.TEACHER, ROLE.STUDENT] },
-  { path: '/knowledge-graph', title: '知识点图谱', icon: Share, roles: [ROLE.TEACHER, ROLE.STUDENT] },
+  { path: '/course', title: '课程管理', icon: Reading, roles: [ROLE.TEACHER, ROLE.ADMIN] },
+  { path: '/knowledge', title: '课程知识库', icon: Files, roles: [ROLE.TEACHER, ROLE.ADMIN] },
+  { path: '/homework', title: '作业管理', icon: EditPen, roles: [ROLE.TEACHER, ROLE.ADMIN] },
+  { path: '/notice', title: '课程公告', icon: Bell, roles: [ROLE.TEACHER, ROLE.ADMIN, ROLE.STUDENT] },
+  { path: '/knowledge-graph', title: '知识点图谱', icon: Share, roles: [ROLE.TEACHER, ROLE.ADMIN, ROLE.STUDENT] },
   { path: '/student-dashboard', title: '学习中心', icon: School, roles: [ROLE.STUDENT] },
   { path: '/my-course', title: '我的课程', icon: Reading, roles: [ROLE.STUDENT] },
   { path: '/my-notes', title: '我的笔记', icon: Memo, roles: [ROLE.STUDENT] },
@@ -228,9 +228,14 @@ function onCommand(cmd) {
       positiveText: '退出',
       negativeText: '取消',
       onPositiveClick: async () => {
-        await logoutApi()
-        userStore.logout()
-        router.push('/login')
+        try {
+          await logoutApi()
+        } catch (_) {
+          // 服务端注销失败时仍清理本地会话，避免用户被卡在当前账号。
+        } finally {
+          userStore.logout()
+          router.push('/login')
+        }
       }
     })
   }

@@ -70,7 +70,8 @@ public interface StatMapper {
             "    ELSE '90-100' END AS score_range, " +
             "  COUNT(*) AS cnt " +
             "FROM ( " +
-            "  SELECT sa.assignment_id, sa.student_id, SUM(sa.score) AS total_score " +
+            "  SELECT sa.assignment_id, sa.student_id, " +
+            "         SUM(sa.score) * 100.0 / NULLIF(a.total_score, 0) AS total_score " +
             "  FROM student_answer sa " +
             "  JOIN assignment a ON a.id = sa.assignment_id AND a.is_deleted = 0 " +
             "  WHERE a.course_id IN " +
@@ -92,9 +93,11 @@ public interface StatMapper {
             "       COALESCE(enr.enrolled,0) AS enrolled " +
             "FROM assignment a " +
             "LEFT JOIN ( " +
-            "  SELECT assignment_id, COUNT(DISTINCT student_id) AS submitted, AVG(total) AS avg_score " +
+            "  SELECT t.assignment_id, COUNT(DISTINCT t.student_id) AS submitted, " +
+            "         AVG(t.total * 100.0 / NULLIF(a2.total_score, 0)) AS avg_score " +
             "  FROM (SELECT assignment_id, student_id, SUM(score) total FROM student_answer GROUP BY assignment_id, student_id) t " +
-            "  GROUP BY assignment_id " +
+            "  JOIN assignment a2 ON a2.id = t.assignment_id AND a2.is_deleted = 0 " +
+            "  GROUP BY t.assignment_id " +
             ") sub ON sub.assignment_id = a.id " +
             "LEFT JOIN (SELECT course_id, COUNT(DISTINCT student_id) AS enrolled FROM course_student GROUP BY course_id) enr " +
             "  ON enr.course_id = a.course_id " +
@@ -141,7 +144,9 @@ public interface StatMapper {
      * 返回 Map 键：student_name、avg_score、submitted_count。
      */
     @Select("<script>" +
-            "SELECT u.real_name AS student_name, AVG(t.total) AS avg_score, COUNT(DISTINCT t.assignment_id) AS submitted_count " +
+            "SELECT u.real_name AS student_name, " +
+            "       AVG(t.total * 100.0 / NULLIF(a2.total_score, 0)) AS avg_score, " +
+            "       COUNT(DISTINCT t.assignment_id) AS submitted_count " +
             "FROM ( " +
             "  SELECT sa.assignment_id, sa.student_id, SUM(sa.score) AS total " +
             "  FROM student_answer sa " +
@@ -150,6 +155,7 @@ public interface StatMapper {
             "    <foreach collection='courseIds' item='id' open='(' separator=',' close=')'>#{id}</foreach> " +
             "  GROUP BY sa.assignment_id, sa.student_id " +
             ") t " +
+            "JOIN assignment a2 ON a2.id = t.assignment_id AND a2.is_deleted = 0 " +
             "JOIN sys_user u ON u.id = t.student_id " +
             "GROUP BY t.student_id, u.real_name ORDER BY avg_score DESC LIMIT 10" +
             "</script>")
@@ -181,16 +187,18 @@ public interface StatMapper {
     /**
      * 学生平均作业总分（F-LEARN-01）
      */
-    @Select("SELECT COALESCE(AVG(total),0) FROM " +
+    @Select("SELECT COALESCE(AVG(total * 100.0 / NULLIF(a.total_score, 0)),0) FROM " +
             "(SELECT assignment_id, SUM(score) total FROM student_answer " +
-            " WHERE student_id = #{studentId} GROUP BY assignment_id) t")
+            " WHERE student_id = #{studentId} GROUP BY assignment_id) t " +
+            "JOIN assignment a ON a.id = t.assignment_id AND a.is_deleted = 0")
     double selectStudentAvgScore(@Param("studentId") Long studentId);
 
     /**
      * 学生成绩趋势（F-LEARN-01）：每次作业的总分与满分。
      * 返回 Map 键：title、score、full_score、create_time。
      */
-    @Select("SELECT a.title AS title, a.total_score AS full_score, t.total AS score, a.create_time AS create_time " +
+    @Select("SELECT a.title AS title, 100.0 AS full_score, " +
+            "t.total * 100.0 / NULLIF(a.total_score, 0) AS score, a.create_time AS create_time " +
             "FROM (SELECT assignment_id, SUM(score) total FROM student_answer " +
             "      WHERE student_id = #{studentId} GROUP BY assignment_id) t " +
             "JOIN assignment a ON a.id = t.assignment_id AND a.is_deleted = 0 " +

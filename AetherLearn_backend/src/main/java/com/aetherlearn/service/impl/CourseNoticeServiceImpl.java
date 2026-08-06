@@ -1,6 +1,7 @@
 package com.aetherlearn.service.impl;
 
 import com.aetherlearn.common.BusinessException;
+import com.aetherlearn.common.RoleConstant;
 import com.aetherlearn.dto.CourseNoticeSaveRequest;
 import com.aetherlearn.entity.Course;
 import com.aetherlearn.entity.CourseNotice;
@@ -41,6 +42,14 @@ public class CourseNoticeServiceImpl implements CourseNoticeService {
         }
         LambdaQueryWrapper<CourseNotice> wrapper = new LambdaQueryWrapper<>();
         if (courseId != null) {
+            Course selected = courseMapper.selectById(courseId);
+            if (selected == null) {
+                throw new BusinessException(404, "课程不存在");
+            }
+            // 教师只能查看本人课程公告，避免通过参数读取其他课程内容。
+            if (RoleConstant.TEACHER == role && !java.util.Objects.equals(selected.getTeacherId(), userId)) {
+                throw new BusinessException(403, "只能查看本人课程公告");
+            }
             wrapper.eq(CourseNotice::getCourseId, courseId);
         } else {
             if (role != null && role == 2) {
@@ -57,12 +66,17 @@ public class CourseNoticeServiceImpl implements CourseNoticeService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public CourseNotice save(CourseNoticeSaveRequest request, Long operatorId) {
+    public CourseNotice save(CourseNoticeSaveRequest request, Long operatorId, Integer role) {
+        Course course = courseMapper.selectById(request.getCourseId());
+        assertOperator(course, operatorId, role);
         CourseNotice notice = request.getId() == null
                 ? new CourseNotice()
                 : courseNoticeMapper.selectById(request.getId());
         if (notice == null) {
             throw new BusinessException(404, "公告不存在");
+        }
+        if (notice.getId() != null && !java.util.Objects.equals(notice.getCourseId(), course.getId())) {
+            throw new BusinessException(400, "公告不属于指定课程");
         }
         notice.setCourseId(request.getCourseId());
         notice.setTitle(request.getTitle());
@@ -83,7 +97,25 @@ public class CourseNoticeServiceImpl implements CourseNoticeService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void delete(Long id) {
+    public void delete(Long id, Long operatorId, Integer role) {
+        CourseNotice notice = courseNoticeMapper.selectById(id);
+        if (notice == null) {
+            throw new BusinessException(404, "公告不存在");
+        }
+        assertOperator(courseMapper.selectById(notice.getCourseId()), operatorId, role);
         courseNoticeMapper.deleteById(id);
+    }
+
+    /** 校验公告所属课程的维护权限，管理员可维护全部课程。 */
+    private void assertOperator(Course course, Long operatorId, Integer role) {
+        if (course == null) {
+            throw new BusinessException(404, "课程不存在");
+        }
+        if (RoleConstant.ADMIN == role) {
+            return;
+        }
+        if (RoleConstant.TEACHER != role || !java.util.Objects.equals(course.getTeacherId(), operatorId)) {
+            throw new BusinessException(403, "只能操作本人课程公告");
+        }
     }
 }

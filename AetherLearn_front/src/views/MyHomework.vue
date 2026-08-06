@@ -145,11 +145,41 @@
 
       <template #action>
         <n-space justify="end">
-          <n-button @click="doVisible = false">关闭</n-button>
+          <n-button v-if="phase === 'answer'" :disabled="submitting" @click="doVisible = false">取消</n-button>
           <n-button v-if="phase === 'answer'" type="primary" :loading="submitting" @click="onSubmit">提交作答</n-button>
-          <n-button v-else type="primary" @click="phase = 'answer'">重新作答</n-button>
+          <n-button v-else type="primary" @click="doVisible = false">完成并返回列表</n-button>
         </n-space>
       </template>
+    </n-modal>
+
+    <n-modal
+      v-model:show="scoreModalVisible"
+      preset="card"
+      class="score-modal"
+      :mask-closable="false"
+      :close-on-esc="false"
+      :closable="false"
+    >
+      <div class="submission-receipt">
+        <div class="receipt-status"><span></span>答卷已提交</div>
+        <h3>{{ currentAssignment?.title || '本次作业' }}</h3>
+        <p class="receipt-lead">本次作答已经结束，成绩已同步到作业列表。</p>
+
+        <div class="score-ticket">
+          <span>{{ hasPendingReview ? '当前成绩' : '本次成绩' }}</span>
+          <strong>{{ currentResult?.earnedScore ?? 0 }}<small>/ {{ currentResult?.totalScore ?? 0 }}</small></strong>
+        </div>
+
+        <div v-if="hasPendingReview" class="review-tip">
+          简答题仍需教师复核，最终成绩可能会更新。
+        </div>
+        <div v-else class="receipt-note">所有题目已完成批改，可以查看每道题的得分和解析。</div>
+
+        <n-space justify="end" class="receipt-actions">
+          <n-button @click="finishSubmission">完成并返回列表</n-button>
+          <n-button type="primary" @click="viewSubmittedResult">查看答题详情</n-button>
+        </n-space>
+      </div>
     </n-modal>
   </div>
 </template>
@@ -164,6 +194,7 @@ import { listCourses } from '../api/course'
 import { listAssignments as fetchAssignments, getAssignmentDetail, submitAnswers, getAnswerResult } from '../api/homework'
 import { uploadFile } from '../api/file'
 import DOMPurify from 'dompurify'
+import { resolveApplicationUrl } from '../utils/url'
 
 const { message } = createDiscreteApi(['message'])
 const courses = ref([])
@@ -198,6 +229,10 @@ const detail = ref(null)
 const answers = reactive({})
 const currentResult = ref(null)
 const submitting = ref(false)
+const scoreModalVisible = ref(false)
+const hasPendingReview = computed(() =>
+  (currentResult.value?.items || []).some((item) => item.gradeType === 2 && item.reviewStatus === 0)
+)
 const letter = (i) => String.fromCharCode(65 + i)
 const editorInstances = shallowRef({})
 const ATTACHMENT_MENU_KEY = 'insertAttachment'
@@ -231,7 +266,7 @@ function pickAttachmentFile(editor) {
       editor.focus()
       editor.restoreSelection()
       editor.dangerouslyInsertHtml(
-        `<p><a href="${escapeHtml(fileUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(file.name || '附件')}</a></p>`
+        `<p><a href="${escapeHtml(resolveApplicationUrl(fileUrl))}" target="_blank" rel="noopener noreferrer">${escapeHtml(file.name || '附件')}</a></p>`
       )
       message.success('附件已插入')
     } catch (error) {
@@ -330,7 +365,10 @@ function onEditorCreated(id, editor) {
 
 function formatAnswer(html) {
   if (!html) return '（空）'
-  return DOMPurify.sanitize(html)
+  return DOMPurify.sanitize(html).replace(
+    /(href\s*=\s*["'])\/uploads\//gi,
+    `$1${resolveApplicationUrl('/uploads/')}`
+  )
 }
 
 function resetAnswers() {
@@ -375,12 +413,31 @@ async function onSubmit() {
     const res = await submitAnswers(payload)
     currentResult.value = res
     resultMap[currentAssignment.value.id] = { submitted: true, earnedScore: res.earnedScore }
-    phase.value = 'result'
-    message.success('提交成功')
+    doVisible.value = false
+    resetAnswers()
+    scoreModalVisible.value = true
+    message.success('提交成功，本次作答已结束')
   } finally {
     submitting.value = false
   }
 }
+
+/** 关闭成绩弹窗并清理本次作业详情，返回作业列表。 */
+function finishSubmission() {
+  scoreModalVisible.value = false
+  currentAssignment.value = null
+  detail.value = null
+  currentResult.value = null
+  phase.value = 'answer'
+}
+
+/** 从成绩弹窗进入只读答题详情，不再提供重新作答入口。 */
+function viewSubmittedResult() {
+  scoreModalVisible.value = false
+  phase.value = 'result'
+  doVisible.value = true
+}
+
 /** 清空上一门课程的作业提交状态，避免跨课程统计。 */
 function clearAssignmentResults() {
   Object.keys(resultMap).forEach((id) => delete resultMap[id])
@@ -454,6 +511,20 @@ onBeforeUnmount(() => destroyEditors())
 .result-summary { display: flex; align-items: baseline; gap: 10px; margin-bottom: 18px; }
 .rs-score { font-size: 32px; font-weight: 700; color: #18323d; }
 .rs-score small { font-size: 14px; color: #6b7280; font-weight: 500; }
+.score-modal { width: min(520px, calc(100vw - 24px)); }
+.submission-receipt { padding: 8px 6px 2px; }
+.receipt-status { display: flex; align-items: center; gap: 8px; color: #23857f; font-size: 13px; font-weight: 700; letter-spacing: 0.06em; }
+.receipt-status span { width: 9px; height: 9px; border-radius: 50%; background: #42b5bb; box-shadow: 0 0 0 5px rgba(66, 181, 187, 0.13); }
+.submission-receipt h3 { margin: 18px 0 6px; color: #16313b; font-size: 22px; }
+.receipt-lead { margin: 0; color: #64737b; font-size: 13px; line-height: 1.7; }
+.score-ticket { display: flex; align-items: flex-end; justify-content: space-between; margin: 22px 0 14px; padding: 18px 20px; border: 1px solid #cfecea; border-left: 5px solid #42b5bb; border-radius: 14px; background: linear-gradient(110deg, #f1fbfa 0%, #ffffff 72%); }
+.score-ticket > span { padding-bottom: 6px; color: #577078; font-size: 13px; font-weight: 600; }
+.score-ticket strong { color: #18323d; font-size: 42px; line-height: 1; font-variant-numeric: tabular-nums; }
+.score-ticket small { margin-left: 6px; color: #7d8d94; font-size: 15px; font-weight: 500; }
+.review-tip, .receipt-note { padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.65; }
+.review-tip { background: #fff8e8; color: #966515; }
+.receipt-note { background: #f5f8f8; color: #64737b; }
+.receipt-actions { margin-top: 22px; }
 .r-block { border: 1px solid #e4f4f2; border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; background: #f7fbfb; }
 .r-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .r-seq { font-weight: 700; color: #2f7f86; }
@@ -463,4 +534,9 @@ onBeforeUnmount(() => destroyEditors())
 .r-feedback { margin-top: 8px; color: #1f2937; font-size: 13px; background: #fff; border: 1px dashed #d9edeb; border-radius: 12px; padding: 10px 12px; line-height: 1.6; }
 .work-modal { width: min(860px, calc(100vw - 24px)); }
 @media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
+@media (max-width: 520px) {
+  .score-ticket { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .receipt-actions { justify-content: stretch !important; }
+  .receipt-actions :deep(.n-button) { flex: 1; }
+}
 </style>

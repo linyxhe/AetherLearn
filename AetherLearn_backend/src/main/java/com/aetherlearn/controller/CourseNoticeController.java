@@ -38,17 +38,18 @@ public class CourseNoticeController {
     }
 
     /** 保存课程公告 */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @PostMapping
     public Result<CourseNotice> save(@Valid @RequestBody CourseNoticeSaveRequest request) {
-        return Result.success("保存成功", courseNoticeService.save(request, SecurityUtils.getCurrentUserId()));
+        return Result.success("保存成功", courseNoticeService.save(request,
+                SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole()));
     }
 
     /** 删除课程公告 */
-    @PreAuthorize("hasRole('TEACHER')")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
-        courseNoticeService.delete(id);
+        courseNoticeService.delete(id, SecurityUtils.getCurrentUserId(), SecurityUtils.getCurrentRole());
         return Result.success();
     }
 }

@@ -1,6 +1,8 @@
 package com.aetherlearn.dto;
 
 import lombok.Data;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 
 import java.io.Serializable;
 
@@ -12,9 +14,12 @@ import java.io.Serializable;
 public class ReviewRequest implements Serializable {
 
     /** 学生作答记录ID */
+    @NotNull(message = "作答记录ID不能为空")
     private Long answerId;
 
     /** 教师评定的本题得分 */
+    @NotNull(message = "评分不能为空")
+    @Min(value = 0, message = "评分不能为负数")
     private Integer score;
 
     /** 批改反馈 */

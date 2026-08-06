@@ -34,12 +34,12 @@ public interface CourseService {
     /**
      * 删除课程（软删除，is_deleted 置 1）
      */
-    void delete(Long id);
+    void delete(Long id, Long operatorId, Integer role);
 
     /**
      * 生成课程加入邀请码（写入 course.invite_code）
      */
-    String generateInviteCode(Long courseId);
+    String generateInviteCode(Long courseId, Long operatorId, Integer role);
 
     /**
      * 学生凭邀请码加入课程（写入 course_student）
@@ -49,12 +49,12 @@ public interface CourseService {
     /**
      * 查询某课程下所有学生（F-COURSE-03 学生名单）
      */
-    List<SysUser> listStudents(Long courseId);
+    List<SysUser> listStudents(Long courseId, Long operatorId, Integer role);
 
     /**
      * 教师移除课程中的某学生（F-COURSE-03 学生移除）
      */
-    void removeStudent(Long courseId, Long studentId);
+    void removeStudent(Long courseId, Long studentId, Long operatorId, Integer role);
 
     /**
      * 查询课程在线学习章节；学生仅查看已发布章节，并带完成状态。
@@ -64,17 +64,17 @@ public interface CourseService {
     /**
      * 教师新增或编辑课程在线学习章节。
      */
-    CourseChapter saveChapter(CourseChapterSaveRequest request);
+    CourseChapter saveChapter(CourseChapterSaveRequest request, Long operatorId, Integer role);
 
     /**
      * 教师删除课程在线学习章节。
      */
-    void deleteChapter(Long chapterId);
+    void deleteChapter(Long chapterId, Long operatorId, Integer role);
 
     /**
      * 删除章节已上传的资源文件，并清空章节的资源地址。
      */
-    void deleteChapterResource(Long chapterId);
+    void deleteChapterResource(Long chapterId, Long operatorId, Integer role);
 
     /**
      * 学生完成章节学习，并写入学习行为记录。

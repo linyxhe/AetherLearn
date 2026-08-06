@@ -41,15 +41,15 @@ public interface UserService {
     /**
      * 编辑用户信息
      */
-    SysUser updateUser(Long id, UserAdminSaveRequest request);
+    SysUser updateUser(Long id, UserAdminSaveRequest request, Long operatorId);
 
     /**
      * 删除用户（物理删除）
      */
-    void deleteUser(Long id);
+    void deleteUser(Long id, Long operatorId);
 
     /**
      * 启用/禁用用户
      */
-    void updateUserStatus(Long id, Integer status);
+    void updateUserStatus(Long id, Integer status, Long operatorId);
 }

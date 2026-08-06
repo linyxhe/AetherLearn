@@ -49,7 +49,7 @@
           <div class="note-foot">
             <span>最近编辑：{{ formatTime(note.updateTime || note.createTime) }}</span>
             <n-space :size="8">
-              <n-button size="small" secondary type="error" @click="onDelete(note)">删除</n-button>
+              <n-button size="small" secondary type="error" :loading="deletingNoteId === note.id" :disabled="deletingNoteId !== null && deletingNoteId !== note.id" @click="onDelete(note)">删除</n-button>
               <n-button size="small" type="primary" @click="continueEdit(note)">继续编辑</n-button>
             </n-space>
           </div>
@@ -78,6 +78,7 @@ const notes = ref([])
 const loading = ref(false)
 const selectedCourse = ref(null)
 const onlyFavorites = ref(false)
+const deletingNoteId = ref(null)
 const chapterMap = reactive({})
 
 const courseOptions = computed(() => courses.value.map((course) => ({
@@ -148,9 +149,17 @@ function onDelete(note) {
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: async () => {
-      await deleteChapterNote(note.id)
-      message.success('笔记已删除')
-      await loadNotes()
+      if (deletingNoteId.value !== null) return
+      deletingNoteId.value = note.id
+      try {
+        await deleteChapterNote(note.id)
+        message.success('笔记已删除')
+        await loadNotes()
+      } catch (error) {
+        message.error(error?.message || '删除失败，请重试')
+      } finally {
+        deletingNoteId.value = null
+      }
     }
   })
 }

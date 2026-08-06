@@ -6,3 +6,6 @@ uploads/
 application-local.yml
 # 旧的明文密钥文件（已弃用，勿提交）
 api-key.txt
+# 前端生产构建产物由 npm run build:prod 自动写入此目录，打包时再随 Jar 一并带入。
+src/main/resources/static/*
+!src/main/resources/static/.gitkeep

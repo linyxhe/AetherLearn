@@ -24,6 +24,13 @@ public interface LearningRecordMapper extends BaseMapper<LearningRecord> {
     LearningRecord selectHomeworkRecord(@Param("studentId") Long studentId,
                                         @Param("assignmentId") Long assignmentId);
 
+    /** 查询学生某章节小测的唯一学习记录，提交重试时执行更新而不是重复插入。 */
+    @Select("SELECT * FROM learning_record WHERE student_id = #{studentId} "
+            + "AND action_type = '章节小测' AND target_id = #{chapterId} "
+            + "ORDER BY id DESC LIMIT 1")
+    LearningRecord selectQuizRecord(@Param("studentId") Long studentId,
+                                    @Param("chapterId") Long chapterId);
+
     /**
      * 查询学生是否已经完成指定在线学习章节。
      */

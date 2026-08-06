@@ -9,14 +9,14 @@
       <n-card class="hero-card" :bordered="false">
         <div class="hero-card-title">当前课程</div>
         <div class="hero-card-value">{{ currentCourseName || '未选择课程' }}</div>
-        <div class="hero-card-sub">{{ isTeacher ? '教师可发布公告' : '学生查看已加入课程公告' }}</div>
+        <div class="hero-card-sub">{{ canManage ? '教师或管理员可发布公告' : '学生查看已加入课程公告' }}</div>
       </n-card>
     </div>
 
     <n-card :bordered="false" class="panel">
       <n-space justify="space-between" align="center" wrap>
         <n-select v-model:value="selectedCourse" :options="courseOptions" placeholder="选择课程" clearable style="min-width: 260px" @update:value="loadNotices" />
-        <n-button v-if="isTeacher" type="primary" @click="openCreate">发布公告</n-button>
+        <n-button v-if="canManage" type="primary" @click="openCreate">发布公告</n-button>
       </n-space>
     </n-card>
 
@@ -32,9 +32,9 @@
                 <span>{{ item.createTime }}</span>
               </div>
             </div>
-            <n-space v-if="isTeacher">
+            <n-space v-if="canManage">
               <n-button size="small" secondary @click="openEdit(item)">编辑</n-button>
-              <n-button size="small" secondary type="error" @click="onDelete(item)">删除</n-button>
+              <n-button size="small" secondary type="error" :loading="deletingId === item.id" :disabled="deletingId !== null && deletingId !== item.id" @click="onDelete(item)">删除</n-button>
             </n-space>
           </div>
           <div class="notice-content">{{ item.content }}</div>
@@ -77,7 +77,7 @@ import { listCourseNotices, saveCourseNotice, deleteCourseNotice } from '../api/
 
 const { message, dialog } = createDiscreteApi(['message', 'dialog'])
 const userStore = useUserStore()
-const isTeacher = computed(() => userStore.role === ROLE.TEACHER)
+const canManage = computed(() => userStore.role === ROLE.TEACHER || userStore.role === ROLE.ADMIN)
 const courses = ref([])
 const notices = ref([])
 const loading = ref(false)
@@ -85,6 +85,7 @@ const saving = ref(false)
 const selectedCourse = ref(null)
 const visible = ref(false)
 const form = reactive({ id: null, courseId: null, title: '', content: '', noticeType: 'NOTICE', status: 1 })
+const deletingId = ref(null)
 
 const courseOptions = computed(() => courses.value.map((c) => ({ label: c.courseName, value: c.id })))
 const currentCourseName = computed(() => courses.value.find((c) => c.id === selectedCourse.value)?.courseName || '')
@@ -155,9 +156,17 @@ async function onDelete(item) {
     negativeText: '取消'
   })
   if (!ok) return
-  await deleteCourseNotice(item.id)
-  message.success('已删除')
-  await loadNotices()
+  if (deletingId.value !== null) return
+  deletingId.value = item.id
+  try {
+    await deleteCourseNotice(item.id)
+    message.success('已删除')
+    await loadNotices()
+  } catch (error) {
+    message.error(error?.message || '删除失败，请重试')
+  } finally {
+    deletingId.value = null
+  }
 }
 
 onMounted(async () => {

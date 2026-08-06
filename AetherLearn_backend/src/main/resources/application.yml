@@ -4,23 +4,18 @@
 # =============================================================
 
 server:
-  port: 8085
   servlet:
     context-path: /
 
 spring:
   application:
     name: AetherLearn_backend
-  # 多环境：默认激活 local 配置（application-local.yml，含密钥，已 gitignore）。
-  # 部署到服务器时用环境变量 SPRING_PROFILES_ACTIVE=prod 关闭本地配置。
+  # 多环境：默认使用开发环境；通过 SPRING_PROFILES_ACTIVE=prod 切换至生产环境。
+  # dev 组会额外加载本机私有配置 application-local.yml（已被 Git 忽略）。
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:local}
-  # ---------- 数据源（MySQL 8） ----------
-  datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/aetherlearn?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: root
-    password: root
+    default: dev
+    group:
+      dev: local
   # ---------- 静态资源（文件上传虚拟路径映射由 WebConfig 配置） ----------
   servlet:
     multipart:
@@ -31,16 +26,6 @@ spring:
   # 关闭 Spring Security 默认的内存用户自动配置，避免空用户名导致启动失败
   autoconfigure:
     exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
-
-# ---------- JWT 配置 ----------
-jwt:
-  secret: aetherlearn-default-secret-key-2026-please-change-in-prod-1234567890   # 生产务必替换
-  expiration: 86400000          # 有效期（毫秒）：24 小时
-  token-prefix: "Bearer "       # HTTP 头前缀
-
-# ---------- 文件上传根目录（运行时生成 uploads/ 及各分桶） ----------
-file:
-  upload-dir: ./uploads         # 相对后端项目根目录；也可改为绝对路径
 
 # ---------- LangChain4j 大模型配置（OpenAI 兼容接口） ----------
 # LangChain4j 统一处理流式/同步、重试、超时；切换供应商只需改 base-url + model-name。
@@ -61,7 +46,8 @@ langchain4j:
       model-name: deepseek-v4-flash
       temperature: 0.3
       timeout: PT120S
-      api-key: <<your AI api-key>>
+#      api-key: <<your AI api-key>>
+
 # 业务层 AI 参数（RAG 检索配置，保留）
 ai:
   enabled: true
@@ -82,7 +68,6 @@ mybatis-plus:
   type-aliases-package: com.aetherlearn.entity
   configuration:
     map-underscore-to-camel-case: true   # 下划线自动转驼峰
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 开发期打印 SQL（上线可关）
   global-config:
     db-config:
       logic-delete-field: isDeleted     # 全局逻辑删除字段（软删除）

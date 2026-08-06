@@ -1,10 +1,14 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
-// Vite 配置（AetherLearn 前端）
-// 开发期将 /api 代理到后端（Spring Boot 8085），避免跨域。
-export default defineConfig({
+// Vite 配置：开发环境由 5173 代理后端；生产环境构建到 Spring Boot 静态目录。
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const backendTarget = env.VITE_BACKEND_URL || 'http://127.0.0.1:8085'
+
+  return {
+  base: mode === 'production' ? '/aetherlearn/' : '/',
   plugins: [vue()],
   resolve: {
     alias: {
@@ -12,10 +16,11 @@ export default defineConfig({
     }
   },
   server: {
+    host: '127.0.0.1',
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8085',
+        target: backendTarget,
         changeOrigin: true,
         // SSE 流式代理：手动转发数据流，绕过 http-proxy 默认的响应缓冲
         selfHandleResponse: true,
@@ -51,9 +56,16 @@ export default defineConfig({
         }
       },
       '/uploads': {
-        target: 'http://localhost:8085',
+        target: backendTarget,
         changeOrigin: true
       }
     }
+  },
+  build: {
+    // 构建后的页面随 Spring Boot Jar 一起发布，生产端只暴露 8088。
+    outDir: fileURLToPath(new URL('../AetherLearn_backend/src/main/resources/static', import.meta.url)),
+    emptyOutDir: true,
+    sourcemap: mode !== 'production'
+  }
   }
 })

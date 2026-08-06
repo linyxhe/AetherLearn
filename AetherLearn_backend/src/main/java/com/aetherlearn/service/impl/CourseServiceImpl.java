@@ -80,6 +80,7 @@ public class CourseServiceImpl implements CourseService {
             if (course == null) {
                 throw new BusinessException(404, "课程不存在");
             }
+            assertCourseOperator(course, operatorId, role);
             course.setCourseName(request.getCourseName());
             course.setCourseCode(request.getCourseCode());
             course.setDescription(request.getDescription());
@@ -106,7 +107,17 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void delete(Long id) {
+    public void delete(Long id, Long operatorId, Integer role) {
+        Course course = courseMapper.selectById(id);
+        if (course == null) {
+            throw new BusinessException(404, "课程不存在");
+        }
+        assertCourseOperator(course, operatorId, role);
+        // 课程软删除前清理章节资料，避免 uploads/course 留下不可达文件。
+        LambdaQueryWrapper<CourseChapter> chapterWrapper = new LambdaQueryWrapper<>();
+        chapterWrapper.eq(CourseChapter::getCourseId, id);
+        List<CourseChapter> chapters = courseChapterMapper.selectList(chapterWrapper);
+        chapters.forEach(chapter -> deleteStoredCourseResource(chapter.getResourceUrl()));
         // removeById 配合 @TableLogic 会执行软删除（UPDATE is_deleted = 1）
         int rows = courseMapper.deleteById(id);
         if (rows == 0) {
@@ -116,8 +127,9 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public String generateInviteCode(Long courseId) {
+    public String generateInviteCode(Long courseId, Long operatorId, Integer role) {
         Course course = courseMapper.selectById(courseId);
+        assertCourseOperator(course, operatorId, role);
         if (course == null) {
             throw new BusinessException(404, "课程不存在");
         }
@@ -154,6 +166,9 @@ public class CourseServiceImpl implements CourseService {
             throw new BusinessException(400, "邀请码无效");
         }
         // 重复加入校验
+        if (course.getStatus() == null || course.getStatus() != 1) {
+            throw new BusinessException(400, "课程已关闭，暂时无法加入");
+        }
         int existed = courseStudentMapper.countByCourseAndStudent(course.getId(), studentId);
         if (existed > 0) {
             throw new BusinessException(400, "你已加入该课程");
@@ -166,24 +181,26 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
-    public List<SysUser> listStudents(Long courseId) {
+    public List<SysUser> listStudents(Long courseId, Long operatorId, Integer role) {
         // 校验课程是否存在
         Course course = courseMapper.selectById(courseId);
         if (course == null) {
             throw new BusinessException(404, "课程不存在");
         }
+        assertCourseOperator(course, operatorId, role);
         return courseStudentMapper.selectStudentsByCourseId(courseId);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void removeStudent(Long courseId, Long studentId) {
+    public void removeStudent(Long courseId, Long studentId, Long operatorId, Integer role) {
         // 校验课程是否存在
         Course course = courseMapper.selectById(courseId);
         if (course == null) {
             throw new BusinessException(404, "课程不存在");
         }
         // 校验学生是否在该课程中
+        assertCourseOperator(course, operatorId, role);
         int existed = courseStudentMapper.countByCourseAndStudent(courseId, studentId);
         if (existed == 0) {
             throw new BusinessException(400, "该学生未加入此课程");
@@ -196,6 +213,17 @@ public class CourseServiceImpl implements CourseService {
         Course course = courseMapper.selectById(courseId);
         if (course == null) {
             throw new BusinessException(404, "课程不存在");
+        }
+        if (role != null && (role == RoleConstant.TEACHER || role == RoleConstant.ADMIN)) {
+            assertCourseOperator(course, studentId, role);
+        } else if (role != null && role == RoleConstant.STUDENT
+                && (studentId == null || courseStudentMapper.countByCourseAndStudent(courseId, studentId) == 0)) {
+            throw new BusinessException(403, "请先加入课程再学习");
+        }
+        // 关闭课程保留历史课程卡片，但禁止学生继续进入章节学习。
+        if (role != null && role == RoleConstant.STUDENT
+                && (course.getStatus() == null || course.getStatus() != 1)) {
+            throw new BusinessException(400, "课程已关闭，暂时无法继续学习");
         }
         LambdaQueryWrapper<CourseChapter> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(CourseChapter::getCourseId, courseId);
@@ -213,7 +241,7 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public CourseChapter saveChapter(CourseChapterSaveRequest request) {
+    public CourseChapter saveChapter(CourseChapterSaveRequest request, Long operatorId, Integer role) {
         Course course = courseMapper.selectById(request.getCourseId());
         if (course == null) {
             throw new BusinessException(404, "课程不存在");
@@ -222,6 +250,10 @@ public class CourseServiceImpl implements CourseService {
         if (chapter == null) {
             throw new BusinessException(404, "章节不存在");
         }
+        if (chapter.getId() != null && !course.getId().equals(chapter.getCourseId())) {
+            throw new BusinessException(400, "章节不属于指定课程");
+        }
+        assertCourseOperator(course, operatorId, role);
         chapter.setCourseId(request.getCourseId());
         chapter.setTitle(request.getTitle());
         chapter.setContent(request.getContent());
@@ -247,7 +279,15 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void deleteChapter(Long chapterId) {
+    public void deleteChapter(Long chapterId, Long operatorId, Integer role) {
+        CourseChapter chapter = courseChapterMapper.selectById(chapterId);
+        if (chapter == null) {
+            throw new BusinessException(404, "章节不存在");
+        }
+        Course course = courseMapper.selectById(chapter.getCourseId());
+        assertCourseOperator(course, operatorId, role);
+        // 章节软删除前同步清理已上传资料，避免磁盘残留。
+        deleteStoredCourseResource(chapter.getResourceUrl());
         int rows = courseChapterMapper.deleteById(chapterId);
         if (rows == 0) {
             throw new BusinessException(404, "章节不存在");
@@ -259,11 +299,12 @@ public class CourseServiceImpl implements CourseService {
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void deleteChapterResource(Long chapterId) {
+    public void deleteChapterResource(Long chapterId, Long operatorId, Integer role) {
         CourseChapter chapter = courseChapterMapper.selectById(chapterId);
         if (chapter == null) {
             throw new BusinessException(404, "章节不存在");
         }
+        assertCourseOperator(courseMapper.selectById(chapter.getCourseId()), operatorId, role);
         deleteStoredCourseResource(chapter.getResourceUrl());
         courseChapterMapper.update(null, new LambdaUpdateWrapper<CourseChapter>()
                 .eq(CourseChapter::getId, chapterId)
@@ -271,9 +312,20 @@ public class CourseServiceImpl implements CourseService {
                 .set(CourseChapter::getUpdateTime, LocalDateTime.now()));
     }
 
-    /**
-     * 仅允许删除 uploads/course 分桶中的文件，防止通过资源地址越界删除其他文件。
-     */
+    /** 按角色校验课程操作权限，教师只能维护自己的课程，管理员可维护全部课程。 */
+    private void assertCourseOperator(Course course, Long operatorId, Integer role) {
+        if (course == null) {
+            throw new BusinessException(404, "课程不存在");
+        }
+        if (role == null || (role != RoleConstant.ADMIN && role != RoleConstant.TEACHER)) {
+            throw new BusinessException(403, "当前角色无权操作课程");
+        }
+        if (role == RoleConstant.TEACHER && !java.util.Objects.equals(course.getTeacherId(), operatorId)) {
+            throw new BusinessException(403, "只能操作本人课程");
+        }
+    }
+
+    /** 仅允许删除 uploads/course 分桶中的文件，防止通过资源地址越界删除其他文件。 */
     private void deleteStoredCourseResource(String resourceUrl) {
         if (resourceUrl == null || resourceUrl.isBlank()) {
             return;

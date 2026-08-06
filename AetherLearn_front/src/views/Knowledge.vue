@@ -91,7 +91,7 @@
               <td>
                 <n-space>
                   <n-button size="small" secondary @click="onDownload(row)">下载</n-button>
-                  <n-button size="small" secondary type="error" @click="onDelete(row)">删除</n-button>
+                  <n-button size="small" secondary type="error" :loading="deletingId === row.id" :disabled="deletingId !== null && deletingId !== row.id" @click="onDelete(row)">删除</n-button>
                 </n-space>
               </td>
             </tr>
@@ -111,6 +111,7 @@ import { computed, onMounted, ref } from 'vue'
 import { NAlert, NButton, NCard, NEmpty, NInput, NPagination, NProgress, NSpace, NSelect, NTable, NTag, NUpload, NUploadDragger, createDiscreteApi } from 'naive-ui'
 import { listCourses } from '../api/course'
 import { uploadKnowledge, listKnowledge, deleteKnowledge, searchKnowledge } from '../api/knowledge'
+import { resolveApplicationUrl } from '../utils/url'
 
 const { message, dialog } = createDiscreteApi(['message', 'dialog'])
 const courses = ref([])
@@ -126,6 +127,9 @@ const showSearchResults = ref(false)
 const uploadRef = ref(null)
 const uploading = ref(false)
 const uploadProgress = ref(0)
+const deletingId = ref(null)
+let docsRequestToken = 0
+let searchRequestToken = 0
 const uploadStage = ref('正在上传文件…')
 
 const courseOptions = computed(() => courses.value.map((c) => ({ label: c.courseName, value: c.id })))
@@ -140,11 +144,19 @@ async function loadCourses() {
 }
 async function loadDocs() {
   if (!selectedCourse.value) return
+  const requestToken = ++docsRequestToken
   loading.value = true
   try {
-    docs.value = await listKnowledge(selectedCourse.value)
+    const result = await listKnowledge(selectedCourse.value)
+    if (requestToken === docsRequestToken) {
+      docs.value = result || []
+      const maxPage = Math.max(1, Math.ceil(docs.value.length / pageSize))
+      currentPage.value = Math.min(currentPage.value, maxPage)
+    }
+  } catch (error) {
+    if (requestToken === docsRequestToken) message.error(error?.message || '课程资料加载失败，请重试')
   } finally {
-    loading.value = false
+    if (requestToken === docsRequestToken) loading.value = false
   }
 }
 function onCourseChange() {
@@ -158,12 +170,20 @@ async function onSearch() {
     message.warning('请输入搜索关键词')
     return
   }
+  if (!selectedCourse.value) {
+    message.warning('请先选择课程')
+    return
+  }
+  const requestToken = ++searchRequestToken
   searchLoading.value = true
   showSearchResults.value = true
   try {
-    searchResults.value = await searchKnowledge(selectedCourse.value, searchQuery.value.trim(), 10)
+    const result = await searchKnowledge(selectedCourse.value, searchQuery.value.trim(), 10)
+    if (requestToken === searchRequestToken) searchResults.value = result || []
+  } catch (error) {
+    if (requestToken === searchRequestToken) message.error(error?.message || '知识库检索失败，请重试')
   } finally {
-    searchLoading.value = false
+    if (requestToken === searchRequestToken) searchLoading.value = false
   }
 }
 function beforeUpload({ file }) {
@@ -201,6 +221,8 @@ async function customUpload({ file, onError, onFinish }) {
     loadDocs()
   } catch (e) {
     onError?.(e)
+    uploadStage.value = '上传失败，请检查网络或文件格式后重试'
+    message.error(e?.message || '课程资料上传失败')
     uploadRef.value?.clear()
   } finally {
     uploading.value = false
@@ -208,7 +230,7 @@ async function customUpload({ file, onError, onFinish }) {
   }
 }
 function onDownload(row) {
-  if (row.filePath) window.open(row.filePath, '_blank')
+  if (row.filePath) window.open(resolveApplicationUrl(row.filePath), '_blank')
 }
 async function onDelete(row) {
   const ok = await dialog.warning({
@@ -218,7 +240,16 @@ async function onDelete(row) {
     negativeText: '取消'
   })
   if (!ok) return
-  await deleteKnowledge(row.id)
+  if (deletingId.value !== null) return
+  deletingId.value = row.id
+  try {
+    await deleteKnowledge(row.id)
+  } catch (error) {
+    message.error(error?.message || '删除失败，请重试')
+    deletingId.value = null
+    return
+  }
+  deletingId.value = null
   message.success('已删除')
   loadDocs()
 }

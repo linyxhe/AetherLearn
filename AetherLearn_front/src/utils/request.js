@@ -5,15 +5,17 @@ import router from '../router'
 // Axios 统一封装（F-AUTH / 基础支撑）
 // - 自动注入 Authorization: Bearer token
 // - 统一处理 401（跳登录）与错误提示
+const applicationBasePath = import.meta.env.BASE_URL.replace(/\/$/, '')
+
 const request = axios.create({
-  baseURL: '/api',      // 由 vite 代理转发到后端 8080
+  baseURL: `${applicationBasePath}/api`,
   timeout: 15000
 })
 
 // 请求拦截：注入 Token
 request.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token')
+    const token = localStorage.getItem('aetherlearn_token')
     if (token) {
       config.headers['Authorization'] = token
     }
@@ -39,8 +41,8 @@ request.interceptors.response.use(
     const data = error.response?.data
     if (status === 401) {
       // 未认证/过期：清理本地状态并跳转登录
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
+      localStorage.removeItem('aetherlearn_token')
+      localStorage.removeItem('aetherlearn_user')
       ElMessage.error(data?.message || '登录已过期，请重新登录')
       if (router.currentRoute.value.path !== '/login') {
         router.push('/login')
