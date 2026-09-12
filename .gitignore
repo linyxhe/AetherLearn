@@ -12,6 +12,18 @@ out/
 # ---- 依赖（前端）----
 node_modules/
 
+# ---- 依赖（Python）----
+.venv/
+**/.venv/
+.venv*/
+**/.venv*/
+
+# ---- 模型缓存（体积大，运行时下载）----
+aetherlearn-ai-service/models/
+**/huggingface/
+*.onnx
+*.safetensors
+
 # ---- 上传文件（运行时生成）----
 uploads/
 
@@ -22,7 +34,25 @@ uploads/
 
 # ---- 本地敏感配置（含 AI 密钥，禁止提交 GitHub）----
 application-local.yml
+.env
+.env.local
+.env.development
+.env.production
+aetherlearn-ai-service/.env
 api-key.txt
+
+# ---- Python 运行时缓存 ----
+__pycache__/
+**/__pycache__/
+*.pyc
+**/*.pyc
+.pytest_cache/
+**/.pytest_cache/
+
+# ---- 本地服务数据 ----
+aetherlearn-ai-service/milvus_data/
+aetherlearn-ai-service/minio_data/
+aetherlearn-ai-service/ollama/
 
 # ---- 系统/临时 ----
 .DS_Store

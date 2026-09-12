@@ -1,0 +1,34 @@
+# Web framework
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+pydantic==2.7.4
+pydantic-settings==2.3.0
+
+# Vector models（BGE-M3 稠密向量直接用 transformers 编码，避免 FlagEmbedding 在 Windows 上触发 DataLoader 多进程限制）
+# Windows 建议安装 CPU 版 torch，避免拉取数 GB 的 CUDA wheel：
+#   pip install torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu
+torch==2.3.0
+transformers==4.33.0
+tokenizers==0.13.3
+numpy==1.26.4
+# 分词器统一使用 tokenizers(Rust) 的 fast 实现，不安装 sentencepiece：
+# sentencepiece 原生模块与 pymilvus(grpcio) 在 Windows 同进程会触发 access violation。
+onnxruntime==1.18.0           # ONNX inference acceleration
+
+# Milvus
+pymilvus==2.5.4                # Milvus 2.5+ BM25 function and hybrid retrieval
+
+# LLM / agent support（LangGraph 编排 + OpenAI 兼容模型；三个版本互相自洽，且兼容现有 pydantic 2.7.4 / httpx 0.27.0）
+# 不要安装 langchain 与 langchain-milvus：
+#   1) langchain 会 pin langchain-core<0.3，与本组合直接冲突；
+#   2) langchain-milvus 在 import 期触碰 pymilvus 原生 DLL，破坏 native_runtime 的加载顺序约定。
+langgraph==0.2.60
+langchain-core==0.3.29
+langchain-openai==0.2.14
+
+# Utilities
+setuptools==80.9.0
+python-multipart==0.0.9
+python-dotenv==1.0.1
+httpx==0.27.0                 # Async HTTP client
+PyMySQL==1.1.1                  # MySQL driver for historical backfill

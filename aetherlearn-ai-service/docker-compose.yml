@@ -1,0 +1,108 @@
+services:
+  # ========== Milvus（向量数据库，Standalone 模式，适合毕业设计/开发环境） ==========
+  milvus:
+    image: milvusdb/milvus:v2.5.4
+    container_name: aetherlearn-milvus
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - ./milvus_data:/var/lib/milvus
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: minioadmin
+      MINIO_SECRET_ACCESS_KEY: minioadmin123
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 10s
+      start_period: 60s
+      retries: 30
+    restart: unless-stopped
+
+  # ========== MinIO（Milvus 对象存储） ==========
+  minio:
+    image: minio/minio:RELEASE.2023-09-04T19-57-37Z
+    container_name: aetherlearn-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    volumes:
+      - ./minio_data:/data
+    restart: unless-stopped
+
+  # ========== Ollama（本地 LLM 可选，提供 OpenAI 兼容接口） ==========
+  # ollama:
+  #   image: ollama/ollama:0.1.69
+  #   container_name: aetherlearn-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   restart: unless-stopped
+
+  # ========== AetherLearn AI Service（可选 profile） ==========
+  ai-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aetherlearn-ai-service
+    profiles: ["ai"]
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SERVICE_API_KEY: ${SERVICE_API_KEY:-}
+      MILVUS_HOST: milvus
+      MILVUS_PORT: 19530
+      MILVUS_DB: aetherlearn
+      COLLECTION_NAME: ${COLLECTION_NAME:-knowledge_chunks_v2}
+      LEGACY_COLLECTION_NAME: ${LEGACY_COLLECTION_NAME:-knowledge_chunks}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      EMBEDDING_DEVICE: ${EMBEDDING_DEVICE:-cpu}
+      EMBEDDING_USE_FP16: ${EMBEDDING_USE_FP16:-false}
+      RERANKER_MODEL: ${RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}
+      RERANKER_DEVICE: ${RERANKER_DEVICE:-cpu}
+      RERANKER_USE_ONNX: ${RERANKER_USE_ONNX:-true}
+      RERANKER_ONNX_PATH: /models/reranker.onnx
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-aetherlearn}
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-root}
+      JAVA_CALLBACK_URL: ${JAVA_CALLBACK_URL:-http://aetherlearn-backend:8080}
+      HF_HOME: /models/huggingface
+      # 大模型参数。优先级：Java 管理端 sys_config（随请求体下发） > 这里的 .env > app/config.py 默认值。
+      # 三项必须成套出现在 .env 里：环境变量哪怕为空串也会覆盖 config.py 的默认值，
+      # 少写一项就会让 LLM 判为"配置不完整"，问答只能返回检索结果。
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.3}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-4096}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-120}
+    depends_on:
+      milvus:
+        condition: service_healthy
+    volumes:
+      - ai_models:/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  milvus_data:
+  minio_data:
+  ai_models:
