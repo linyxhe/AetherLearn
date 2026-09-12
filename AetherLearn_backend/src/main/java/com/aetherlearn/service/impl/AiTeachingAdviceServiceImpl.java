@@ -1,7 +1,7 @@
 package com.aetherlearn.service.impl;
 
 import com.aetherlearn.ai.AiConfig;
-import com.aetherlearn.ai.LlmClient;
+import com.aetherlearn.ai.PythonAiClient;
 import com.aetherlearn.dto.AiTeachingAdviceVO;
 import com.aetherlearn.dto.DashboardStatVO;
 import com.aetherlearn.service.AiTeachingAdviceService;
@@ -10,23 +10,26 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
  * AI 教学建议服务实现
+ * <p>优先由 Python AI 服务（LangGraph）生成；不可用时用规则模板降级。</p>
  */
 @Service
 public class AiTeachingAdviceServiceImpl implements AiTeachingAdviceService {
 
     private final DashboardService dashboardService;
     private final AiConfig aiConfig;
-    private final LlmClient llmClient;
+    private final PythonAiClient pythonAiClient;
 
-    public AiTeachingAdviceServiceImpl(DashboardService dashboardService, AiConfig aiConfig, LlmClient llmClient) {
+    public AiTeachingAdviceServiceImpl(DashboardService dashboardService, AiConfig aiConfig, PythonAiClient pythonAiClient) {
         this.dashboardService = dashboardService;
         this.aiConfig = aiConfig;
-        this.llmClient = llmClient;
+        this.pythonAiClient = pythonAiClient;
     }
 
     @Override
@@ -34,9 +37,19 @@ public class AiTeachingAdviceServiceImpl implements AiTeachingAdviceService {
         DashboardStatVO stat = dashboardService.getDashboardStat(teacherId, role);
         AiTeachingAdviceVO vo = buildRuleAdvice(stat);
         if (aiConfig.isAvailable()) {
-            String text = llmClient.chatWithin(buildSystemPrompt(), buildUserPrompt(stat), 6);
-            if (text != null && !text.isBlank()) {
-                vo.setAiText(text.trim());
+            Map<String, Object> variables = new LinkedHashMap<>();
+            variables.put("overview", String.valueOf(stat.getOverview()));
+            variables.put("score_distribution", String.valueOf(stat.getScoreDistribution()));
+            variables.put("completion_trend", String.valueOf(stat.getCompletionTrend()));
+            variables.put("knowledge_mastery", String.valueOf(stat.getKnowledgeMastery()));
+            variables.put("student_ranking", String.valueOf(stat.getStudentRanking()));
+
+            // 预算 20s：Python 侧只拿走 60%，剩下 40% 留给传输与排队。
+            // 原先 6s 的预算配上推理型模型（思维链本身就要 3~4s）几乎必然超时降级。
+            PythonAiClient.TaskResult result =
+                    pythonAiClient.task("teacher_advice", variables, "text", 20L);
+            if (result.isSuccess() && !result.getRaw().isBlank()) {
+                vo.setAiText(result.getRaw().trim());
                 vo.setAiGenerated(true);
             }
         }
@@ -100,16 +113,4 @@ public class AiTeachingAdviceServiceImpl implements AiTeachingAdviceService {
         return actions;
     }
 
-    private String buildSystemPrompt() {
-        return "你是 AetherLearn 教学分析助手。请基于教师看板数据生成中文教学建议，语气专业、简洁、可执行。";
-    }
-
-    private String buildUserPrompt(DashboardStatVO stat) {
-        return "请生成一份面向教师的教学建议，包含总体判断、重点知识点、预警学生和后续教学动作。\n"
-                + "概览：" + stat.getOverview()
-                + "\n成绩分布：" + stat.getScoreDistribution()
-                + "\n完成率趋势：" + stat.getCompletionTrend()
-                + "\n知识掌握：" + stat.getKnowledgeMastery()
-                + "\n预警学生：" + stat.getStudentRanking();
-    }
 }

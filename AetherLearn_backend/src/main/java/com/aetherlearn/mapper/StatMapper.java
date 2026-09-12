@@ -227,4 +227,79 @@ public interface StatMapper {
             "WHERE student_id = #{studentId} ORDER BY create_time DESC LIMIT #{limit}")
     List<Map<String, Object>> selectStudentSuggestions(@Param("studentId") Long studentId,
                                                        @Param("limit") int limit);
+
+    // ==================== 课程维度的学情查询（供 ReAct 智能助教的 get_learning_progress 工具） ====================
+    // 为什么另立一套而不是复用上面的学生级查询：问答发生在**某门课**的语境里，
+    // 用学生级聚合会把别的课程的作业分数答进当前课程（"我这次作业多少分"直接答错）。
+    // 这六个查询都强制带 course_id，与问答链路的课程隔离保持一致。
+
+    /**
+     * 某学生在指定课程内的答题正确率。
+     * 返回 Map 键：total、correct。
+     */
+    @Select("SELECT COUNT(*) AS total, " +
+            "       SUM(CASE WHEN sa.is_correct = 1 THEN 1 ELSE 0 END) AS correct " +
+            "FROM student_answer sa " +
+            "JOIN assignment a ON a.id = sa.assignment_id AND a.is_deleted = 0 " +
+            "WHERE sa.student_id = #{studentId} AND a.course_id = #{courseId} " +
+            "  AND sa.is_correct IS NOT NULL")
+    Map<String, Object> selectStudentCourseAccuracy(@Param("studentId") Long studentId,
+                                                    @Param("courseId") Long courseId);
+
+    /**
+     * 某学生在指定课程内的学习行为记录数（活跃度）。
+     */
+    @Select("SELECT COUNT(*) FROM learning_record " +
+            "WHERE student_id = #{studentId} AND course_id = #{courseId}")
+    long countStudentCourseActivity(@Param("studentId") Long studentId,
+                                    @Param("courseId") Long courseId);
+
+    /**
+     * 某学生在指定课程内的成绩趋势（最近 limit 次作业）。
+     * 返回 Map 键：title、score、full_score、create_time。
+     */
+    @Select("SELECT a.title AS title, 100.0 AS full_score, " +
+            "       t.total * 100.0 / NULLIF(a.total_score, 0) AS score, " +
+            "       a.create_time AS create_time " +
+            "FROM (SELECT assignment_id, SUM(score) total FROM student_answer " +
+            "      WHERE student_id = #{studentId} GROUP BY assignment_id) t " +
+            "JOIN assignment a ON a.id = t.assignment_id AND a.is_deleted = 0 " +
+            "WHERE a.course_id = #{courseId} " +
+            "ORDER BY a.create_time DESC LIMIT #{limit}")
+    List<Map<String, Object>> selectStudentCourseScoreTrend(@Param("studentId") Long studentId,
+                                                            @Param("courseId") Long courseId,
+                                                            @Param("limit") int limit);
+
+    /**
+     * 某学生在指定课程内的知识盲区（按知识点统计错误率）。
+     * 返回 Map 键：knowledge_point、total、wrong。
+     */
+    @Select("SELECT q.knowledge_point AS knowledge_point, COUNT(*) AS total, " +
+            "       SUM(CASE WHEN sa.is_correct = 0 THEN 1 ELSE 0 END) AS wrong " +
+            "FROM student_answer sa " +
+            "JOIN question q ON q.id = sa.question_id " +
+            "JOIN assignment a ON a.id = sa.assignment_id AND a.is_deleted = 0 " +
+            "WHERE sa.student_id = #{studentId} AND a.course_id = #{courseId} " +
+            "  AND sa.is_correct IS NOT NULL " +
+            "GROUP BY q.knowledge_point")
+    List<Map<String, Object>> selectStudentCourseKnowledgeGaps(@Param("studentId") Long studentId,
+                                                              @Param("courseId") Long courseId);
+
+    /**
+     * 某学生在指定课程内的错题数（已批改且判错）。
+     */
+    @Select("SELECT COUNT(*) FROM student_answer sa " +
+            "JOIN assignment a ON a.id = sa.assignment_id AND a.is_deleted = 0 " +
+            "WHERE sa.student_id = #{studentId} AND a.course_id = #{courseId} " +
+            "  AND sa.is_correct = 0")
+    long countStudentCourseWrongAnswers(@Param("studentId") Long studentId,
+                                       @Param("courseId") Long courseId);
+
+    /**
+     * 某学生在指定课程内未完成的学习待办数。
+     */
+    @Select("SELECT COUNT(*) FROM learning_todo " +
+            "WHERE user_id = #{userId} AND course_id = #{courseId} AND status = 0")
+    long countPendingTodosInCourse(@Param("userId") Long userId,
+                                  @Param("courseId") Long courseId);
 }

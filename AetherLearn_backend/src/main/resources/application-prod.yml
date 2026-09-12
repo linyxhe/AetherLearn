@@ -1,0 +1,41 @@
+server:
+  address: 127.0.0.1
+  port: 8080
+  servlet:
+    context-path: /aetherlearn
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/aetherlearn?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+
+jwt:
+  secret: ${JWT_SECRET:aetherlearn-dev-only-secret-key-2026-change-before-release}
+  expiration: 86400000
+  token-prefix: "Bearer "
+
+file:
+  upload-dir: ${FILE_UPLOAD_DIR:./uploads}
+
+aetherlearn:
+  cors:
+    allowed-origin-patterns: ${AETHERLEARN_CORS_ORIGINS:https://www.linyxhe.top}
+
+ai:
+  # 大模型密钥只从环境变量注入，禁止写进配置文件
+  llm:
+    api-key: ${AI_API_KEY:}
+  # Python AI 服务（Docker 内使用服务名；本机开发可改为 localhost:8000）
+  python-service:
+    enabled: true
+    url: ${AI_SERVICE_URL:http://localhost:8000}
+    api-key: ${AI_SERVICE_API_KEY:}
+    # 首次请求需要加载 BGE-M3 和 Reranker（CPU 上合计可达 40s+），超时过短会被误判为服务不可用。
+    timeout: 60s
+    top-k: 30
+    rerank-top-k: 10
+    # 流式问答看门狗：首块等待上限与两块之间的空闲上限
+    stream-first-event-timeout: 45s
+    stream-idle-timeout: 60s

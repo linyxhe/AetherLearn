@@ -1,22 +1,22 @@
-// AetherLearn 图表主题 v3 — "温润校园"
-// 统一蓝绿柔和调色板 + 扁平 2D 风格。
+// AetherLearn 图表主题 v3 — "科技蓝紫"
+// 统一科技蓝紫调色板 + 扁平 2D 风格。
 // 与 main.css v3 token 系统对齐，低饱和、无渐变立体效果。
 
 import * as echarts from 'echarts'
 
-// 蓝绿主色与图表辅助色（与 main.css token 对齐）
+// 科技蓝紫主色与图表辅助色（与 main.css token 对齐）
 export const BRAND = {
-  primary: '#42B5BB',
-  accent: '#87D8C9',
-  deep: '#38a4a9',
-  soft: '#a8e6cf',
+  primary: '#5b6ef5',
+  accent: '#7c4dff',
+  deep: '#4b56c9',
+  soft: '#b9c2ff',
   amber: '#FFB86C',
   green: '#67C23A',
   red: '#F56C6C',
   text2: '#666666',
   text3: '#999999',
-  grid: '#d9edeb',
-  surface: '#f2fbfa'
+  grid: '#e6e8f5',
+  surface: '#f5f6fb'
 }
 
 // 多序列调色板（6 色，低饱和柔和）
@@ -29,16 +29,16 @@ export const PALETTE = [
   BRAND.red
 ]
 
-// 竖向蓝绿渐变（面积图/折线填充）
+// 竖向蓝紫渐变（面积图/折线填充）
 export function areaGradient() {
   return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-    { offset: 0, color: 'rgba(66, 181, 187, 0.30)' },
-    { offset: 0.7, color: 'rgba(135, 216, 201, 0.06)' },
-    { offset: 1, color: 'rgba(135, 216, 201, 0.01)' }
+    { offset: 0, color: 'rgba(91, 110, 245, 0.30)' },
+    { offset: 0.7, color: 'rgba(124, 77, 255, 0.06)' },
+    { offset: 1, color: 'rgba(124, 77, 255, 0.01)' }
   ])
 }
 
-// 横向蓝绿渐变（柱状）
+// 横向蓝紫渐变（柱状）
 export function barGradient() {
   return new echarts.graphic.LinearGradient(0, 0, 1, 0, [
     { offset: 0, color: BRAND.primary },
@@ -82,7 +82,7 @@ function ensureTheme() {
         color: '#333333',
         fontSize: 13
       },
-      extraCssText: 'box-shadow: 0 4px 16px rgba(66, 181, 187, 0.12); border-radius: 12px; padding: 10px 14px;'
+      extraCssText: 'box-shadow: 0 4px 16px rgba(91, 110, 245, 0.14); border-radius: 12px; padding: 10px 14px;'
     },
     categoryAxis: {
       axisLine: { lineStyle: { color: BRAND.grid } },
@@ -113,7 +113,7 @@ function ensureTheme() {
       splitLine: { lineStyle: { color: BRAND.grid } },
       splitArea: {
         areaStyle: {
-          color: ['rgba(66, 181, 187, 0.02)', 'rgba(135, 216, 201, 0.04)']
+          color: ['rgba(91, 110, 245, 0.02)', 'rgba(124, 77, 255, 0.04)']
         }
       },
       axisName: {

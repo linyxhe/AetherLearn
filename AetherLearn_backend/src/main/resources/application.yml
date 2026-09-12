@@ -27,34 +27,51 @@ spring:
   autoconfigure:
     exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
 
-# ---------- LangChain4j 大模型配置（OpenAI 兼容接口） ----------
-# LangChain4j 统一处理流式/同步、重试、超时；切换供应商只需改 base-url + model-name。
-# 密钥放在 gitignored 的 application-local.yml，切勿提交。
+# ---------- 大模型配置（OpenAI 兼容接口） ----------
+# 所有大模型调用统一由 Python AI 服务（LangGraph 编排）承担，Java 侧不再直连模型。
+# 这里的三项是"兜底默认值"：管理员在系统配置页保存的 sys_config 优先，其次才是本文件。
+# 密钥放在 gitignored 的 application-local.yml 或环境变量，切勿提交。
 #
 # 供应商切换指南：
 # ┌──────────────┬──────────────────────────────────────┬────────────────────────────────────────┐
 # │ 供应商           base-url                                model-name
 # ├──────────────┼──────────────────────────────────────┼────────────────────────────────────────┤
 # │ 小米 MiMo       https://api.xiaomimimo.com/v1           mimo-v2.5-pro
-# │ DeepSeek       https://api.deepseek.com/v1             deepseek-v4-flash
-# │ OpenRouter     https://openrouter.ai/api/v1            nvidia/nemotron-3-ultra-550b-a55b:free
+# │ OpenRouter     https://openrouter.ai/api/v1            nex-agi/nex-n2.5-mini:free
 # └──────────────┴──────────────────────────────────────┴────────────────────────────────────────┘
-langchain4j:
-  open-ai:
-    chat-model:
-      base-url: https://api.deepseek.com/v1
-      model-name: deepseek-v4-flash
-      temperature: 0.3
-      timeout: PT120S
-#      api-key: <<your AI api-key>>
-
-# 业务层 AI 参数（RAG 检索配置，保留）
+# 业务层 AI 参数（RAG 检索配置）
 ai:
+  # 大模型兜底默认值：管理员在系统配置页保存的 sys_config 优先，其次才是这里
+  llm:
+    base-url: https://openrouter.ai/api/v1
+    model-name: nex-agi/nex-n2.5-mini:free
+    temperature: 0.3
+#    api-key: <<your AI api-key>>
   enabled: true
   top-k: 5                      # 每问最多取 Top-K 个相关切片
   token-threshold: 2500        # 模型上下文token阈值
   token-ratio: 0.8             # 滑动窗口截断比例（取 Top-K 拼接至阈值的 80% ≈ 2000 token 即停）
   chunk-size: 600              # 文本切片字符上限
+  # ReAct 智能助教：模型自主决定是否调用工具（检索课程知识库 / 查本人学情）
+  # 关闭时回落到改造前的固定流程（检索 → 拼上下文 → 生成），行为与开关引入前一致。
+  agent:
+    enabled: true
+    max-tool-rounds: 3          # 工具调用轮数上限，超过后强制收敛出答案
+    # Agent 模式首轮跳过精排：CPU 上精排 12 条候要约 10.8s，而模型本来就会自己判断
+    # 资料够不够、必要时用工具再检索。设 false 可回到"首轮带精排"的保守行为。
+    skip-rerank-on-first-pass: true
+  # Python AI 服务：Embedding / Milvus 混合检索 / Reranker / LLM 编排；不可用时 Java 侧自动回退
+  python-service:
+    enabled: true
+    url: ${AI_SERVICE_URL:http://localhost:8000}
+    api-key: ${AI_SERVICE_API_KEY:}
+    # 首次请求需要加载 BGE-M3 和 Reranker（CPU 上合计可达 40s+），超时过短会被误判为服务不可用。
+    timeout: 60s
+    top-k: 30                   # Python 侧召回候选数
+    rerank-top-k: 10            # Python 侧重排序保留数
+    # 流式问答看门狗：首块等待上限与两块之间的空闲上限，超时即中止本轮并保留已到文本
+    stream-first-event-timeout: 45s
+    stream-idle-timeout: 60s
 
 # ---------- AetherLearn 业务配置（L4/L5/L6 可配置项） ----------
 aetherlearn:

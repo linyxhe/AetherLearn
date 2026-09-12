@@ -5,9 +5,10 @@ import com.aetherlearn.common.RoleConstant;
 import com.aetherlearn.dto.QaSource;
 import com.aetherlearn.entity.KnowledgeChunk;
 import com.aetherlearn.entity.KnowledgeDoc;
-import com.aetherlearn.kb.Bm25Retriever;
 import com.aetherlearn.kb.DocumentParser;
+import com.aetherlearn.ai.PythonAiClient;
 import com.aetherlearn.kb.TextChunker;
+import com.aetherlearn.hybrid.HybridRetriever;
 import com.aetherlearn.mapper.KnowledgeChunkMapper;
 import com.aetherlearn.mapper.KnowledgeDocMapper;
 import com.aetherlearn.mapper.CourseMapper;
@@ -16,8 +17,12 @@ import com.aetherlearn.service.KnowledgeService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -27,11 +32,12 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
  * 课程知识库服务实现（F-KB 知识库模块）
- * <p>上传流程：保存原文件 → PDF/Word/文本解析 → 文本切片 → 落库 knowledge_doc / knowledge_chunk。</p>
+ * <p>上传流程：保存原文件 → PDF/Word/文本解析 → 文本切片 → 向量化入库；检索时优先混合检索，失败时回退 BM25。</p>
  */
 @Slf4j
 @Service
@@ -41,7 +47,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     private final KnowledgeChunkMapper chunkMapper;
     private final DocumentParser documentParser;
     private final TextChunker textChunker;
-    private final Bm25Retriever retriever;
+    private final PythonAiClient pythonAiClient;
+    private final HybridRetriever hybridRetriever;
     private final CourseMapper courseMapper;
     private final CourseStudentMapper courseStudentMapper;
 
@@ -51,18 +58,23 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     /** 切片字符上限（来自 application.yml 的 ai.chunk-size） */
     @Value("${ai.chunk-size:600}")
     private int chunkSize;
+    /** 事务提交后执行向量化，避免阻塞上传接口。 */
+    private final TaskExecutor taskExecutor;
 
     public KnowledgeServiceImpl(KnowledgeDocMapper docMapper, KnowledgeChunkMapper chunkMapper,
                                 DocumentParser documentParser, TextChunker textChunker,
-                                Bm25Retriever retriever, CourseMapper courseMapper,
-                                CourseStudentMapper courseStudentMapper) {
+                                PythonAiClient pythonAiClient, HybridRetriever hybridRetriever,
+                                CourseMapper courseMapper, CourseStudentMapper courseStudentMapper,
+                                @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
         this.docMapper = docMapper;
         this.chunkMapper = chunkMapper;
         this.documentParser = documentParser;
         this.textChunker = textChunker;
-        this.retriever = retriever;
+        this.pythonAiClient = pythonAiClient;
+        this.hybridRetriever = hybridRetriever;
         this.courseMapper = courseMapper;
         this.courseStudentMapper = courseStudentMapper;
+        this.taskExecutor = taskExecutor;
     }
 
     @Override
@@ -118,6 +130,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 throw new BusinessException(400, "文件未生成可检索切片，请检查文件内容后重新上传");
             }
             int seq = 0;
+            List<Long> chunkIds = new ArrayList<>();
             for (String c : chunks) {
                 KnowledgeChunk kc = new KnowledgeChunk();
                 kc.setDocId(doc.getId());
@@ -127,10 +140,14 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 kc.setCharLen(c.length());
                 kc.setCreateTime(LocalDateTime.now());
                 chunkMapper.insert(kc);
+                chunkIds.add(kc.getId());
             }
             doc.setChunkCount(chunks.size());
             doc.setStatus(1); // 1-已解析
             docMapper.updateById(doc);
+
+            // 6) 事务提交后异步向量化：AI 服务不可用时保留 MySQL 全文检索兜底
+            queueChunksToVectorStore(courseId, doc.getId(), chunkIds, chunks);
             log.info("[KB] 文档解析完成：docId={}, 切片数={}", doc.getId(), chunks.size());
             return doc;
         } catch (BusinessException e) {
@@ -145,6 +162,161 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             log.error("[KB] 文档解析失败：docId={}", doc.getId(), e);
             throw new BusinessException(500, "文档解析失败：" + e.getMessage());
         }
+    }
+
+    /** 异步向量化最大重试次数。 */
+    private static final int MAX_VECTOR_RETRY = 3;
+    /** 首次重试等待时间，后续按指数退避递增。 */
+    private static final long VECTOR_RETRY_BASE_DELAY_MS = 500L;
+
+    /**
+     * 在数据库事务提交后异步向量化，避免阻塞上传接口。
+     * <p>事务回滚时不会触发向量化；AI 服务异常仅记录日志，MySQL 切片继续保留。
+     * 短暂抖动时最多重试 {@link #MAX_VECTOR_RETRY} 次，重试耗尽不阻塞上传结果。</p>
+     */
+    private void queueChunksToVectorStore(Long courseId, Long docId, List<Long> chunkIds, List<String> chunks) {
+        if (!pythonAiClient.isEnabled() || chunks == null || chunks.isEmpty()) {
+            if (!pythonAiClient.isEnabled()) {
+                log.warn("[KB] Python AI 服务未启用，跳过向量入库，保留 MySQL 检索兜底");
+            }
+            return;
+        }
+
+        Runnable vectorizationTask = () -> runWithRetry(
+                "向量入库",
+                () -> indexChunksToVectorStore(courseId, docId, chunkIds, chunks),
+                courseId,
+                docId
+        );
+
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    taskExecutor.execute(vectorizationTask);
+                }
+            });
+        } else {
+            taskExecutor.execute(vectorizationTask);
+        }
+    }
+
+    /**
+     * 将切片批量写入 Python AI 服务的 Milvus 向量库。
+     * <p>写入失败时抛出异常，由 {@link #runWithRetry} 统一重试；重试耗尽只记录日志，保留 MySQL 全文检索兜底。</p>
+     */
+    private void indexChunksToVectorStore(Long courseId, Long docId, List<Long> chunkIds, List<String> chunks) {
+        if (chunks == null || chunks.isEmpty()) {
+            return;
+        }
+
+        List<List<Float>> embeddings = pythonAiClient.embedDocuments(chunks);
+        if (embeddings == null || embeddings.size() != chunks.size()) {
+            throw new IllegalStateException("向量化结果数量与切片数量不一致");
+        }
+
+        List<Map<String, Object>> payload = new ArrayList<>();
+        for (int i = 0; i < chunks.size(); i++) {
+            Map<String, Object> item = new java.util.HashMap<>();
+            item.put("chunk_id", chunkIds.get(i));
+            item.put("course_id", courseId);
+            item.put("doc_id", docId);
+            item.put("seq", i);
+            item.put("content", chunks.get(i));
+            item.put("embedding", embeddings.get(i));
+            payload.add(item);
+        }
+
+        PythonAiClient.IndexResult result = pythonAiClient.indexChunksDetailed(payload);
+        if (!result.isSuccess()) {
+            throw new IllegalStateException("向量入库未完整成功：status=" + result.getStatus()
+                    + ", inserted=" + result.getInserted() + ", error=" + result.getError());
+        }
+        log.info("[KB] 向量入库成功：courseId={}, docId={}, inserted={}", courseId, docId, result.getInserted());
+    }
+
+    /**
+     * 文档软删除后异步清理 Milvus 向量，避免检索继续命中已删除文档。
+     * <p>删除操作同样在事务提交后执行，AI 服务异常不会回滚 MySQL 软删除。</p>
+     */
+    private void queueChunksDeletionToVectorStore(Long courseId, Long docId) {
+        if (!pythonAiClient.isEnabled()) {
+            log.warn("[KB] Python AI 服务未启用，跳过 Milvus 向量删除，保留 MySQL 软删除兜底");
+            return;
+        }
+
+        Runnable deletionTask = () -> {
+            int deleted = deleteChunksWithRetry(courseId, docId);
+            if (deleted == 0) {
+                log.warn("[KB] Milvus 中未找到待删除向量：courseId={}, docId={}", courseId, docId);
+            }
+        };
+
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    taskExecutor.execute(deletionTask);
+                }
+            });
+        } else {
+            taskExecutor.execute(deletionTask);
+        }
+    }
+
+    /**
+     * 执行带指数退避的有界重试。
+     * <p>重试耗尽后只记录错误日志，不向上抛出，避免影响上传或删除主流程。</p>
+     */
+    private void runWithRetry(String action, Runnable task, Long courseId, Long docId) {
+        for (int attempt = 1; attempt <= MAX_VECTOR_RETRY; attempt++) {
+            try {
+                task.run();
+                return;
+            } catch (Exception e) {
+                if (attempt >= MAX_VECTOR_RETRY) {
+                    log.error("[KB] {}重试 {} 次后仍失败，已保留 MySQL 数据：courseId={}, docId={}",
+                            action, MAX_VECTOR_RETRY, courseId, docId, e);
+                    return;
+                }
+                long delay = VECTOR_RETRY_BASE_DELAY_MS * (1L << (attempt - 1));
+                log.warn("[KB] {}第 {} 次失败，{} ms 后重试：courseId={}, docId={}, error={}",
+                        action, attempt, delay, courseId, docId, e.getMessage());
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    log.warn("[KB] {}重试被中断，停止后续重试：courseId={}, docId={}", action, courseId, docId);
+                    return;
+                }
+            }
+        }
+    }
+
+    /** 删除 Milvus 向量并做有界重试；重试耗尽返回 0，由调用方记录日志。 */
+    private int deleteChunksWithRetry(Long courseId, Long docId) {
+        for (int attempt = 1; attempt <= MAX_VECTOR_RETRY; attempt++) {
+            try {
+                return pythonAiClient.deleteChunks(courseId, docId);
+            } catch (Exception e) {
+                if (attempt >= MAX_VECTOR_RETRY) {
+                    log.error("[KB] Milvus 向量删除重试 {} 次后仍失败，已保留 MySQL 软删除：courseId={}, docId={}",
+                            MAX_VECTOR_RETRY, courseId, docId, e);
+                    return 0;
+                }
+                long delay = VECTOR_RETRY_BASE_DELAY_MS * (1L << (attempt - 1));
+                log.warn("[KB] Milvus 向量删除第 {} 次失败，{} ms 后重试：courseId={}, docId={}, error={}",
+                        attempt, delay, courseId, docId, e.getMessage());
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    log.warn("[KB] Milvus 向量删除重试被中断：courseId={}, docId={}", courseId, docId);
+                    return 0;
+                }
+            }
+        }
+        return 0;
     }
 
     @Override
@@ -167,6 +339,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         // removeById 配合 @TableLogic 软删除；检索时 knowledge_chunk 已 JOIN doc.is_deleted 隔离
         assertCourseAccess(doc.getCourseId(), userId, role, true);
         docMapper.deleteById(docId);
+        queueChunksDeletionToVectorStore(doc.getCourseId(), docId);
         deletePhysicalFile(doc.getFilePath());
     }
 
@@ -182,9 +355,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         if (query == null || query.isBlank()) {
             throw new BusinessException(400, "搜索关键词不能为空");
         }
-        // 调用已有 BM25 检索器
+        // 调用混合检索器：优先 Python AI 服务，不可用时回退 BM25
         assertCourseAccess(courseId, userId, role, false);
-        List<KnowledgeChunk> chunks = retriever.retrieve(courseId, query.trim(), topK);
+        List<KnowledgeChunk> chunks = hybridRetriever.retrieve(courseId, query.trim(), topK);
         // 组装来源信息
         List<QaSource> sources = new ArrayList<>();
         for (KnowledgeChunk c : chunks) {

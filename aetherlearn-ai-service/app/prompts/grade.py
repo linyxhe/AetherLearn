@@ -24,6 +24,9 @@ register(
         system=SYSTEM,
         user_template=USER,
         default_output_format="json_object",
+        # 与 Java 的 parseLlmGrade 口径一致：缺 score 就等同解析失败，
+        # 因此这里必须校验，否则 Python 认为成功、Java 仍会降级
+        extra={"required_keys": ["score"]},
         description="主观题 AI 批改",
     )
 )

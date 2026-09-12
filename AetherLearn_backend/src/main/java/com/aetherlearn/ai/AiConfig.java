@@ -21,19 +21,19 @@ public class AiConfig {
     private boolean defaultEnabled;
 
     /** application.yml 中的兜底接口地址。 */
-    @Value("${langchain4j.open-ai.chat-model.base-url:}")
+    @Value("${ai.llm.base-url:}")
     private String defaultBaseUrl;
 
     /** application.yml 中的兜底 API Key。 */
-    @Value("${langchain4j.open-ai.chat-model.api-key:}")
+    @Value("${ai.llm.api-key:}")
     private String defaultApiKey;
 
     /** application.yml 中的兜底模型名称。 */
-    @Value("${langchain4j.open-ai.chat-model.model-name:}")
+    @Value("${ai.llm.model-name:}")
     private String defaultModelName;
 
     /** application.yml 中的兜底温度。 */
-    @Value("${langchain4j.open-ai.chat-model.temperature:0.3}")
+    @Value("${ai.llm.temperature:0.3}")
     private double defaultTemperature;
 
     public AiConfig(SysConfigService sysConfigService) {

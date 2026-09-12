@@ -5,7 +5,7 @@ import { fileURLToPath, URL } from 'node:url'
 // Vite 配置：开发环境由 5173 代理后端；生产环境构建到 Spring Boot 静态目录。
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const backendTarget = env.VITE_BACKEND_URL || 'http://127.0.0.1:8085'
+  const backendTarget = env.VITE_BACKEND_URL || 'http://127.0.0.1:8080'
 
   return {
   base: mode === 'production' ? '/aetherlearn/' : '/',
@@ -62,7 +62,7 @@ export default defineConfig(({ mode }) => {
     }
   },
   build: {
-    // 构建后的页面随 Spring Boot Jar 一起发布，生产端只暴露 8088。
+    // 构建后的页面随 Spring Boot Jar 一起发布，生产端只暴露 8080。
     outDir: fileURLToPath(new URL('../AetherLearn_backend/src/main/resources/static', import.meta.url)),
     emptyOutDir: true,
     sourcemap: mode !== 'production'

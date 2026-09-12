@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import string
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,9 @@ class PromptSpec:
     user_template: str
     default_output_format: str = "text"  # text | json_object | json_array
     description: str = ""
-    extra: Dict[str, str] = field(default_factory=dict)
+    # 声明式契约，供结构化输出的自动校验使用（如 required_keys / item_required_keys）。
+    # 用 Any 而不是 str：契约是列表，字符串化会让调用方被迫拼接/切分。
+    extra: Dict[str, Any] = field(default_factory=dict)
 
     def placeholders(self) -> set:
         """从 user_template 提取 `{name}` 占位符名（忽略 `{{` 转义）。"""

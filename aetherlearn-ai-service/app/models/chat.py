@@ -103,6 +103,8 @@ class TaskPromptRequest(BaseModel):
     llm: Optional[LlmOverrides] = Field(default=None, description="管理端 LLM 配置覆盖")
     system_prompt: Optional[str] = Field(default=None, description="逃生舱口：直接覆盖 system")
     user_prompt: Optional[str] = Field(default=None, description="逃生舱口：直接覆盖 user")
+    # 结构化输出校验失败时的自我修正次数；0 表示不反思（用于对照验证）
+    max_reflections: int = Field(1, ge=0, le=3, description="结构化输出失败时的反思重试上限")
 
 
 class TaskPromptResponse(BaseModel):
@@ -112,5 +114,7 @@ class TaskPromptResponse(BaseModel):
     data: Any = Field(default=None, description="按 output_format 解析后的结构化结果")
     llm_ms: int = Field(0, description="LLM 阶段耗时(ms)")
     parse_error: Optional[str] = Field(default=None, description="结构化解析失败原因（非异常）")
+    # >0 表示第一次没给对、靠反思重试救回来了；Java 侧据此记录"自动修复了几次"
+    reflections: int = Field(0, description="实际发生的反思重试次数")
     provider: str = Field("python", description="实际提供方")
     model: str = Field("", description="实际模型")

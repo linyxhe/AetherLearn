@@ -41,4 +41,21 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunk> {
     List<KnowledgeChunk> selectByFullText(@Param("courseId") Long courseId,
                                           @Param("query") String query,
                                           @Param("limit") int limit);
+
+    /**
+     * 兼容旧 Milvus 集合：按文档和序号定位 MySQL 切片。
+     *
+     * @param courseId 课程ID
+     * @param docId    文档ID
+     * @param seq      切片序号
+     * @return 知识切片
+     */
+    @Select("SELECT c.* FROM knowledge_chunk c " +
+            "JOIN knowledge_doc d ON c.doc_id = d.id " +
+            "WHERE c.course_id = #{courseId} AND c.doc_id = #{docId} " +
+            "AND c.seq = #{seq} AND d.is_deleted = 0 " +
+            "LIMIT 1")
+    KnowledgeChunk selectByDocIdAndSeq(@Param("courseId") Long courseId,
+                                       @Param("docId") Long docId,
+                                       @Param("seq") int seq);
 }

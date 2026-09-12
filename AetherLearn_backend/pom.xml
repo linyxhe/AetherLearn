@@ -27,9 +27,6 @@
         <jjwt.version>0.12.6</jjwt.version>
         <!-- 接口文档 SpringDoc（Knife4j 替代方案） -->
         <springdoc.version>2.7.0</springdoc.version>
-        <!-- LangChain4j：大模型统一调用框架（核心与 starter 版本号不同） -->
-        <langchain4j.version>1.15.0</langchain4j.version>
-        <langchain4j-spring.version>1.15.0-beta25</langchain4j-spring.version>
     </properties>
 
     <dependencies>
@@ -129,19 +126,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
-        </dependency>
-
-        <!-- LangChain4j：大模型统一调用框架（OpenAI 兼容，支持小米 MiMo / DeepSeek / OpenRouter 等） -->
-        <dependency>
-            <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
-            <version>${langchain4j-spring.version}</version>
-        </dependency>
-        <!-- LangChain4j 核心 -->
-        <dependency>
-            <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-spring-boot-starter</artifactId>
-            <version>${langchain4j-spring.version}</version>
         </dependency>
     </dependencies>
 

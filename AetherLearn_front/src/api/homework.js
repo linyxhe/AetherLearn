@@ -32,9 +32,9 @@ export function deleteQuestion(id) {
   return request.delete(`/assignment/question/${id}`)
 }
 
-// 学生提交作答
+// 学生提交作答（含主观题 AI 批改，后端预算 30s，须单独放宽超时）
 export function submitAnswers(payload) {
-  return request.post('/answer/submit', payload)
+  return request.post('/answer/submit', payload, { timeout: 60000 })
 }
 
 // 查看批改结果（学生本人 / 教师指定 studentId）
@@ -54,7 +54,9 @@ export function reviewAnswer(payload) {
 
 // AI 自动出题（L1，教师）
 export function autoGenerateQuestions(assignmentId, courseId, count = 5, type = 1) {
+  // 出题由 Python 编排服务调用大模型生成，耗时可达数十秒，须单独放宽超时
   return request.post(`/assignment/${assignmentId}/auto-generate`, null, {
-    params: { courseId, count, type }
+    params: { courseId, count, type },
+    timeout: 90000
   })
 }

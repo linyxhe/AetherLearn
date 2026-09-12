@@ -23,7 +23,7 @@ export function updateAiSettings(data) {
   return request.put('/admin/config/ai', data)
 }
 
-// 使用已保存配置发起真实模型连接测试
+// 使用已保存配置发起真实模型连接测试（真实调用模型，超时放宽到 60s）
 export function testAiConnection() {
-  return request.post('/admin/config/ai/test')
+  return request.post('/admin/config/ai/test', null, { timeout: 60000 })
 }

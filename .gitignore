@@ -49,6 +49,14 @@ __pycache__/
 .pytest_cache/
 **/.pytest_cache/
 
+# ---- 本地开发配置（含数据库明文口令，禁止提交）----
+# 说明：application.yml（默认 dev profile）需要它才能启动，但密码必须外置后再入库，
+# 详见开发日志的"未决"：把 password 改成 ${DB_PASSWORD:} 并让启动脚本从 .env 导出。
+AetherLearn_backend/src/main/resources/application-dev.yml
+
+# ---- 运行期日志（stderr 可能含请求上下文，不进仓库）----
+logs/
+
 # ---- 本地服务数据 ----
 aetherlearn-ai-service/milvus_data/
 aetherlearn-ai-service/minio_data/

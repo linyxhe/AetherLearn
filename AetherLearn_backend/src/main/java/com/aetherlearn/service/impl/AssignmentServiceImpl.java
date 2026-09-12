@@ -1,7 +1,7 @@
 package com.aetherlearn.service.impl;
 
 import com.aetherlearn.ai.AiConfig;
-import com.aetherlearn.ai.LlmClient;
+import com.aetherlearn.ai.PythonAiClient;
 import com.aetherlearn.common.BusinessException;
 import com.aetherlearn.common.RoleConstant;
 import com.aetherlearn.dto.AnswerSubmitRequest;
@@ -89,7 +89,7 @@ public class AssignmentServiceImpl implements AssignmentService {
     private final SysUserMapper sysUserMapper;
     private final KnowledgeChunkMapper knowledgeChunkMapper;
     private final AiConfig aiConfig;
-    private final LlmClient llmClient;
+    private final PythonAiClient pythonAiClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AssignmentServiceImpl(AssignmentMapper assignmentMapper, QuestionMapper questionMapper,
@@ -97,7 +97,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                                  CourseMapper courseMapper, CourseStudentMapper courseStudentMapper,
                                  SysUserMapper sysUserMapper,
                                  KnowledgeChunkMapper knowledgeChunkMapper,
-                                 AiConfig aiConfig, LlmClient llmClient) {
+                                 AiConfig aiConfig, PythonAiClient pythonAiClient) {
         this.assignmentMapper = assignmentMapper;
         this.questionMapper = questionMapper;
         this.studentAnswerMapper = studentAnswerMapper;
@@ -107,7 +107,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         this.sysUserMapper = sysUserMapper;
         this.knowledgeChunkMapper = knowledgeChunkMapper;
         this.aiConfig = aiConfig;
-        this.llmClient = llmClient;
+        this.pythonAiClient = pythonAiClient;
     }
 
     // ============ 作业列表 ============
@@ -504,21 +504,26 @@ public class AssignmentServiceImpl implements AssignmentService {
         if (ans == null || ans.isBlank()) {
             return new Graded(null, 0, "未作答，已提交教师复核。", GRADE_MANUAL, REVIEW_PENDING, false);
         }
-        // 大模型可用时尝试 AI 批改
+        // 大模型可用时尝试 AI 批改（提示词在 Python 侧注册表，这里只传变量）
         if (aiConfig.isAvailable()) {
-            String system = "你是 AetherLearn 智能批改助手。请依据标准答案对学生主观题作答进行评分，"
-                    + "只输出一个 JSON 对象：{\"score\": 整数(0到满分之间), \"feedback\": \"简短中文反馈\"}，不要输出其它内容。";
-            String user = "【题目】" + q.getContent()
-                    + "\n【标准答案/要点】" + (q.getAnswer() == null ? "" : q.getAnswer())
-                    + "\n【学生作答】" + plainAnswerText(ans)
-                    + "\n【满分】" + full;
-            String llm = llmClient.chat(system, user);
-            if (llm != null) {
-                ParsedGrade pg = parseLlmGrade(llm, full);
+            Map<String, Object> variables = new LinkedHashMap<>();
+            variables.put("question", q.getContent());
+            variables.put("standard_answer", q.getAnswer() == null ? "" : q.getAnswer());
+            variables.put("student_answer", plainAnswerText(ans));
+            variables.put("full_score", full);
+
+            PythonAiClient.TaskResult result =
+                    pythonAiClient.task("grade_subjective", variables, "json_object", 30L);
+            if (result.isSuccess()) {
+                // Java 侧解析仍是权威：越界裁剪、feedback 兜底都在 parseLlmGrade 里
+                ParsedGrade pg = parseLlmGrade(result.getRaw(), full);
                 if (pg != null) {
                     return new Graded(null, pg.score, pg.feedback, GRADE_MANUAL, REVIEW_PENDING, true);
                 }
                 log.warn("[批改] LLM 返回无法解析，降级为关键词命中：assignment={}, question={}", q.getAssignmentId(), q.getId());
+            } else {
+                log.warn("[批改] AI 批改不可用（{}），降级为关键词命中：assignment={}, question={}",
+                        result.getFailureReason(), q.getAssignmentId(), q.getId());
             }
         }
         // 关键词降级方案（无 Key / LLM 失败）
@@ -943,21 +948,19 @@ public class AssignmentServiceImpl implements AssignmentService {
             default -> throw new BusinessException(400, "不支持的题型：" + questionType);
         };
 
-        String system = "你是 AetherLearn 智能出题助手。请依据下方【知识库内容】生成指定数量和类型的题目。"
-                + "每道题输出一个 JSON 对象，所有题目用 JSON 数组返回。格式：\n"
-                + "[{\"content\":\"题目内容\",\"options\":[\"选项1\",\"选项2\",\"选项3\",\"选项4\"],\"answer\":\"A\",\"analysis\":\"解析\",\"knowledgePoint\":\"知识点\",\"score\":5}]\n"
-                + "硬性要求：单选题和多选题必须给出 4 个 options，options 必须是 JSON 数组，不要带 A/B/C/D 前缀；"
-                + "单选答案只写一个字母如 A，多选答案写多个字母如 AC；判断/填空/简答 options 使用空数组；"
-                + "填空题题干用 ___ 表示空格；简答或分析类题目给出参考答案要点；score 默认5分；只输出 JSON 数组，不要其它内容。";
+        // 提示词模板在 Python 侧注册表；题型标签与知识库文本由 Java 提供
+        Map<String, Object> variables = new LinkedHashMap<>();
+        variables.put("context", context.toString());
+        variables.put("type_name", typeName);
+        variables.put("count", count);
 
-        String user = "【知识库内容】\n" + context
-                + "\n\n【出题要求】\n题型：" + typeName
-                + "\n数量：" + count + "道";
-
-        String llmResponse = llmClient.chat(system, user);
-        if (llmResponse == null || llmResponse.isBlank()) {
+        PythonAiClient.TaskResult taskResult =
+                pythonAiClient.task("generate_questions", variables, "json_array", 60L);
+        if (!taskResult.isSuccess() || taskResult.getRaw() == null || taskResult.getRaw().isBlank()) {
+            log.warn("[出题] AI 出题失败：{}", taskResult.getFailureReason());
             throw new BusinessException(500, "AI 出题失败，请稍后重试");
         }
+        String llmResponse = taskResult.getRaw();
 
         // 解析 LLM 返回的 JSON
         List<Question> questions = new ArrayList<>();

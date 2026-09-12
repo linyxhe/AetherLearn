@@ -1,0 +1,23 @@
+serverAddr = "121.196.200.48"
+serverPort = 7000
+auth.token = "REPLACE_WITH_YOUR_TOKEN"
+
+[[proxies]]
+name = "echo-backend"
+type = "https"
+customDomains = ["www.linyxhe.top"]
+
+[proxies.plugin]
+type = "https2http"
+localAddr = "127.0.0.1:8088"
+crtPath = "./server.crt"
+keyPath = "./server.key"
+hostHeaderRewrite = "www.linyxhe.top"
+
+[[proxies]]
+name = "aetherlearn-http"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 8089
+customDomains = ["www.linyxhe.top"]
+locations = ["/aetherlearn"]

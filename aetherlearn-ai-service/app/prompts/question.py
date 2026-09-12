@@ -27,6 +27,7 @@ register(
         system=SYSTEM,
         user_template=USER,
         default_output_format="json_array",
+        extra={"item_required_keys": ["content", "answer"]},
         description="依据知识库内容自动出题",
     )
 )

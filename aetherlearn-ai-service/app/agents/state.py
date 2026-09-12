@@ -77,7 +77,11 @@ class QaState(TypedDict, total=False):
 
 
 class TaskState(TypedDict, total=False):
-    """通用单节点任务图状态：批改 / 出题 / 报告 / 建议 / 连接测试。"""
+    """通用任务图状态：批改 / 出题 / 报告 / 建议 / 连接测试。
+
+    带反思（Reflexion）后不再是单节点：失败时会带着错误重试一次，
+    因此需要 `messages`（累积"上次输出 + 批评"）与预算记账字段。
+    """
 
     prompt_key: str
     variables: Dict[str, Any]
@@ -86,7 +90,15 @@ class TaskState(TypedDict, total=False):
     system_prompt: Optional[str]
     user_prompt: Optional[str]
 
+    # 消息序列：首次为 system+user，反思时追加"上次的 AI 输出 + 批评"
+    messages: Annotated[List[Any], add_messages]
+    # 已发生的反思次数（有上界）与累计耗时（所有尝试共用同一个预算）
+    reflections: int
+    elapsed_ms: int
+
     raw: str
     data: Any
     llm_ms: int
     error: Optional[str]
+    # 反思轨迹，供调用方记录与排查
+    steps: Annotated[List[Dict[str, Any]], operator.add]

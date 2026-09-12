@@ -1,7 +1,7 @@
 package com.aetherlearn.controller;
 
 import com.aetherlearn.ai.AiConfig;
-import com.aetherlearn.ai.LlmClient;
+import com.aetherlearn.ai.PythonAiClient;
 import com.aetherlearn.common.BusinessException;
 import com.aetherlearn.common.Result;
 import com.aetherlearn.dto.AiConfigUpdateRequest;
@@ -32,14 +32,14 @@ public class SysConfigController {
 
     private final SysConfigService sysConfigService;
     private final AiConfig aiConfig;
-    private final LlmClient llmClient;
+    private final PythonAiClient pythonAiClient;
 
     public SysConfigController(SysConfigService sysConfigService,
                                AiConfig aiConfig,
-                               LlmClient llmClient) {
+                               PythonAiClient pythonAiClient) {
         this.sysConfigService = sysConfigService;
         this.aiConfig = aiConfig;
-        this.llmClient = llmClient;
+        this.pythonAiClient = pythonAiClient;
     }
 
     /**
@@ -119,11 +119,12 @@ public class SysConfigController {
 
     /**
      * 使用当前已保存配置发起一次真实模型连接测试。
+     * <p>由 Python AI 服务（LangGraph）执行真实调用；失败直接抛出原因，不做静默降级。</p>
      */
     @PostMapping("/ai/test")
     public Result<Map<String, String>> testAiConnection() {
-        String response = llmClient.testConnection();
-        return Result.success("模型连接成功", Map.of("response", response));
+        String response = pythonAiClient.testLlmConnection();
+        return Result.success("模型连接成功", Map.of("response", response, "provider", "python"));
     }
 
     /** 将动态设置转换为不含密钥的视图。 */

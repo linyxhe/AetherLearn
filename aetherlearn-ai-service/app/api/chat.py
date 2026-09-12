@@ -137,6 +137,7 @@ async def chat_task(req: TaskPromptRequest) -> TaskPromptResponse:
             settings=settings,
             system_prompt=req.system_prompt,
             user_prompt=req.user_prompt,
+            max_reflections=req.max_reflections,
         )
     except KeyError as exc:
         # 未知 key 或缺变量：调用方的编程错误，返回 400 而不是 5xx
@@ -149,6 +150,7 @@ async def chat_task(req: TaskPromptRequest) -> TaskPromptResponse:
         data=result.data,
         llm_ms=result.llm_ms,
         parse_error=result.error,
+        reflections=result.reflections,
         provider="python",
         model=settings.model,
     )

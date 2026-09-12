@@ -1,7 +1,7 @@
 package com.aetherlearn.service.impl;
 
 import com.aetherlearn.ai.AiConfig;
-import com.aetherlearn.ai.LlmClient;
+import com.aetherlearn.ai.PythonAiClient;
 import com.aetherlearn.dto.AiLearningReportVO;
 import com.aetherlearn.dto.AnalyticsOverviewVO;
 import com.aetherlearn.service.AiReportService;
@@ -10,24 +10,26 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
  * AI 报告服务实现
- * <p>优先使用大模型生成自然语言报告；不可用时用规则模板降级，保证离线演示可用。</p>
+ * <p>优先由 Python AI 服务（LangGraph）生成自然语言报告；不可用时用规则模板降级。</p>
  */
 @Service
 public class AiReportServiceImpl implements AiReportService {
 
     private final DashboardService dashboardService;
     private final AiConfig aiConfig;
-    private final LlmClient llmClient;
+    private final PythonAiClient pythonAiClient;
 
-    public AiReportServiceImpl(DashboardService dashboardService, AiConfig aiConfig, LlmClient llmClient) {
+    public AiReportServiceImpl(DashboardService dashboardService, AiConfig aiConfig, PythonAiClient pythonAiClient) {
         this.dashboardService = dashboardService;
         this.aiConfig = aiConfig;
-        this.llmClient = llmClient;
+        this.pythonAiClient = pythonAiClient;
     }
 
     @Override
@@ -35,9 +37,20 @@ public class AiReportServiceImpl implements AiReportService {
         AnalyticsOverviewVO analytics = dashboardService.getAnalyticsOverview(studentId);
         AiLearningReportVO report = buildRuleReport(analytics);
         if (aiConfig.isAvailable()) {
-            String text = llmClient.chatWithin(buildSystemPrompt(), buildUserPrompt(analytics), 6);
-            if (text != null && !text.isBlank()) {
-                report.setAiText(text.trim());
+            // 提示词模板在 Python 侧注册表，这里只提供变量值（沿用 Java 对象的格式化结果）
+            Map<String, Object> variables = new LinkedHashMap<>();
+            variables.put("overview", String.valueOf(analytics.getOverview()));
+            variables.put("score_trend", String.valueOf(analytics.getScoreTrend()));
+            variables.put("knowledge_gaps", String.valueOf(analytics.getKnowledgeGaps()));
+            variables.put("suggestions", String.valueOf(analytics.getSuggestions()));
+            variables.put("learning_path", String.valueOf(analytics.getLearningPath()));
+
+            // 预算 20s：Python 侧只拿走 60%，剩下 40% 留给传输与排队。
+            // 原先 6s 的预算配上推理型模型（思维链本身就要 3~4s）几乎必然超时降级。
+            PythonAiClient.TaskResult result =
+                    pythonAiClient.task("student_report", variables, "text", 20L);
+            if (result.isSuccess() && !result.getRaw().isBlank()) {
+                report.setAiText(result.getRaw().trim());
                 report.setAiGenerated(true);
             }
         }
@@ -110,16 +123,4 @@ public class AiReportServiceImpl implements AiReportService {
         return actions;
     }
 
-    private String buildSystemPrompt() {
-        return "你是 AetherLearn 学习分析助手。请基于学生学情数据生成中文学习报告，语气客观、具体、可执行。";
-    }
-
-    private String buildUserPrompt(AnalyticsOverviewVO analytics) {
-        return "请生成一份 300 字以内的学习报告，包含总体表现、优势、薄弱点、下周行动建议。\n"
-                + "概览：" + analytics.getOverview()
-                + "\n成绩趋势：" + analytics.getScoreTrend()
-                + "\n知识盲区：" + analytics.getKnowledgeGaps()
-                + "\n学习建议：" + analytics.getSuggestions()
-                + "\n学习路径：" + analytics.getLearningPath();
-    }
 }
